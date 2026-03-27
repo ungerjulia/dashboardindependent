@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import * as recharts from "recharts";
 
-const { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } = recharts;
+const { AreaChart, Area, BarChart, Bar, ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } = recharts;
 
 // ══════════════════════════════════════════════════════════════
 //  CONFIG
@@ -207,30 +207,49 @@ function processData(lob, metasTrader, metaLinha, metaGlobal) {
   // Meta Global
   const globalMetas = {};
   metaGlobal.forEach(r => {
-    const mes = r["Mês"] || r["Mes"] || "";
-    globalMetas[mes] = parseMoney(r["Meta Global"] || r["Meta_Global"] || "0");
+    // Try multiple possible column names
+    const keys = Object.keys(r);
+    const mesKey = keys.find(k => k.trim().toLowerCase().startsWith("m") && k.trim().length < 10) || keys[0];
+    const metaKey = keys.find(k => k.trim().toLowerCase().includes("meta")) || keys[1];
+    const mes = (r[mesKey] || "").trim();
+    const val = parseMoney(r[metaKey] || "0");
+    if (mes) globalMetas[mes] = val;
   });
 
+  // Also try matching month names with accents removed
+  const matchMeta = (monthName) => {
+    if (globalMetas[monthName]) return globalMetas[monthName];
+    const normalized = monthName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    for (const [k, v] of Object.entries(globalMetas)) {
+      const nk = k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+      if (nk === normalized) return v;
+    }
+    return 0;
+  };
+
   const lobMesAtual = currentMonthRows.reduce((s, r) => s + r.lob, 0);
-  const metaMesAtual = globalMetas[MONTH_NAMES[currentMonth]] || 0;
+  const metaMesAtual = matchMeta(MONTH_NAMES[currentMonth]);
   const lobAnoTotal = yearRows.reduce((s, r) => s + r.lob, 0);
-  const metaAnoTotal = Object.values(globalMetas).reduce((s, v) => s + v, 0);
+  const metaAnoTotal = MONTH_NAMES.reduce((s, m) => s + matchMeta(m), 0);
 
   // Trimestral
   const qStart = Math.floor(currentMonth / 3) * 3;
   const lobTrimestral = yearRows.filter(r => r.etdMonth >= qStart && r.etdMonth <= currentMonth).reduce((s, r) => s + r.lob, 0);
-  const metaTrimestral = MONTH_NAMES.slice(qStart, qStart + 3).reduce((s, m) => s + (globalMetas[m] || 0), 0);
+  const metaTrimestral = MONTH_NAMES.slice(qStart, qStart + 3).reduce((s, m) => s + matchMeta(m), 0);
 
-  // Status count
-  const statusCount = {};
+  // Status count with LOB
+  const statusData = {};
   currentMonthRows.forEach(r => {
-    statusCount[r.status] = (statusCount[r.status] || 0) + 1;
+    if (!r.status) return;
+    if (!statusData[r.status]) statusData[r.status] = { count: 0, lob: 0 };
+    statusData[r.status].count += 1;
+    statusData[r.status].lob += r.lob;
   });
 
   // Monthly LOB with meta for chart
   const monthlyWithMeta = monthlyLOB.map(m => ({
     ...m,
-    meta: globalMetas[MONTH_NAMES[m.monthIndex]] || 0,
+    meta: matchMeta(MONTH_NAMES[m.monthIndex]),
   }));
 
   return {
@@ -242,7 +261,7 @@ function processData(lob, metasTrader, metaLinha, metaGlobal) {
     lobAnoTotal, metaAnoTotal,
     totalOps: currentMonthRows.length,
     totalOpsAno: yearRows.length,
-    statusCount,
+    statusData,
     currentMonthName: MONTH_NAMES[currentMonth],
   };
 }
@@ -271,34 +290,34 @@ function GaugeChart({ value, max, period, color }) {
   const remaining = max - value;
   const arcPct = Math.min(pct, 100);
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, flex: 1 }}>
-      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.2, color: C.muted, textTransform: "uppercase", fontFamily: FONT }}>{period}</span>
-      <div style={{ position: "relative", width: 130, height: 90 }}>
-        <svg viewBox="0 0 120 80" style={{ width: "100%", height: "100%" }}>
-          <path d="M 10 70 A 54 54 0 0 1 110 70" fill="none" stroke={C.panelBorder} strokeWidth="8" strokeLinecap="round" />
-          <path d="M 10 70 A 54 54 0 0 1 110 70" fill="none" stroke={displayPct >= 100 ? C.green : color} strokeWidth="8" strokeLinecap="round" strokeDasharray={`${(arcPct / 100) * 157} 157`} style={{ filter: `drop-shadow(0 0 6px ${color}60)`, transition: "stroke-dasharray 1s ease" }} />
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, flex: 1, minWidth: 120 }}>
+      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.2, color: "#fff", textTransform: "uppercase", fontFamily: FONT }}>{period}</span>
+      <div style={{ position: "relative", width: 120, height: 75 }}>
+        <svg viewBox="0 0 120 75" style={{ width: "100%", height: "100%" }}>
+          <path d="M 10 65 A 50 50 0 0 1 110 65" fill="none" stroke={C.panelBorder} strokeWidth="8" strokeLinecap="round" />
+          <path d="M 10 65 A 50 50 0 0 1 110 65" fill="none" stroke={displayPct >= 100 ? C.green : color} strokeWidth="8" strokeLinecap="round" strokeDasharray={`${(arcPct / 100) * 157} 157`} style={{ filter: `drop-shadow(0 0 6px ${color}60)`, transition: "stroke-dasharray 1s ease" }} />
         </svg>
-        <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -10%)", textAlign: "center" }}>
-          <div style={{ fontSize: 22, fontWeight: 800, color: displayPct >= 100 ? C.green : C.white, fontFamily: FONT, lineHeight: 1 }}>{displayPct.toFixed(1)}%</div>
+        <div style={{ position: "absolute", top: "45%", left: "50%", transform: "translate(-50%, -10%)", textAlign: "center" }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: displayPct >= 100 ? C.green : "#fff", fontFamily: FONT, lineHeight: 1 }}>{displayPct.toFixed(1)}%</div>
         </div>
       </div>
-      <div style={{ textAlign: "center", marginTop: -4 }}>
-        <div style={{ fontSize: 12, color: C.white, fontWeight: 600, fontFamily: FONT }}>{fmtUSD(value)}</div>
-        <div style={{ fontSize: 10, color: C.muted, fontFamily: FONT }}>
-          {remaining > 0 ? <>Faltam <span style={{ color: C.amber, fontWeight: 700 }}>{fmtUSD(remaining)}</span></> : <span style={{ color: C.green, fontWeight: 700 }}>Meta batida! +{fmtUSD(Math.abs(remaining))}</span>}
+      <div style={{ textAlign: "center" }}>
+        <div style={{ fontSize: 12, color: "#fff", fontWeight: 700, fontFamily: FONT }}>{fmtUSD(value)}</div>
+        <div style={{ fontSize: 10, color: "#fff", fontFamily: FONT, opacity: 0.7 }}>
+          {remaining > 0 ? <>Faltam <span style={{ color: C.amber, fontWeight: 700, opacity: 1 }}>{fmtUSD(remaining)}</span></> : <span style={{ color: C.green, fontWeight: 700, opacity: 1 }}>Meta batida! +{fmtUSD(Math.abs(remaining))}</span>}
         </div>
       </div>
     </div>
   );
 }
 
-function KPICard({ label, value, sub, icon, color }) {
+function KPICard({ label, value, meta, icon, color }) {
   return (
     <div style={{ background: `linear-gradient(135deg, ${C.panel}, ${color}08)`, border: `1px solid ${C.panelBorder}`, borderRadius: 8, padding: "14px 16px", flex: 1, minWidth: 140, position: "relative", overflow: "hidden" }}>
       <div style={{ position: "absolute", top: -10, right: -10, fontSize: 50, opacity: 0.04, color }}>{icon}</div>
-      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.2, color: C.muted, textTransform: "uppercase", fontFamily: FONT, marginBottom: 6 }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 800, color: C.white, fontFamily: FONT, marginBottom: 2 }}>{value}</div>
-      {sub && <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT }}>{sub}</div>}
+      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.2, color: C.white, textTransform: "uppercase", fontFamily: FONT, marginBottom: 6 }}>{label}</div>
+      <div style={{ fontSize: 22, fontWeight: 800, color: "#fff", fontFamily: FONT, marginBottom: 4 }}>{value}</div>
+      {meta && <div style={{ fontSize: 13, color: C.green, fontWeight: 700, fontFamily: FONT }}>Meta: {meta}</div>}
     </div>
   );
 }
@@ -609,10 +628,10 @@ export default function App() {
       {/* KPIs */}
       {config.showKPIs && (
         <div style={{ display: "flex", gap: 12, padding: "14px 20px", flexWrap: "wrap" }}>
-          <KPICard label={`LOB ${d.currentMonthName}`} value={fmtUSD(d.lobMesAtual)} sub={`Meta: ${fmtUSD(d.metaMesAtual)}`} icon="💰" color={C.green} />
-          <KPICard label="LOB Trimestral" value={fmtUSD(d.lobTrimestral)} sub={`Meta: ${fmtUSD(d.metaTrimestral)}`} icon="📊" color={C.cyan} />
-          <KPICard label="LOB Anual" value={fmtUSD(d.lobAnoTotal)} sub={`Meta: ${fmtUSD(d.metaAnoTotal)}`} icon="🏆" color={C.amber} />
-          <KPICard label="Processos do Mês" value={`${d.totalOps}`} sub={`Ano: ${d.totalOpsAno}`} icon="📋" color={C.blue} />
+          <KPICard label={`LOB ${d.currentMonthName}`} value={fmtUSD(d.lobMesAtual)} meta={fmtUSD(d.metaMesAtual)} icon="💰" color={C.green} />
+          <KPICard label="LOB Trimestral" value={fmtUSD(d.lobTrimestral)} meta={fmtUSD(d.metaTrimestral)} icon="📊" color={C.cyan} />
+          <KPICard label="LOB Anual" value={fmtUSD(d.lobAnoTotal)} meta={fmtUSD(d.metaAnoTotal)} icon="🏆" color={C.amber} />
+          <KPICard label="Processos do Mês" value={`${d.totalOps}`} meta={`Ano: ${d.totalOpsAno}`} icon="📋" color={C.blue} />
         </div>
       )}
 
@@ -623,18 +642,18 @@ export default function App() {
           {config.showChart && (
             <Panel title="LOB Mensal vs Meta" icon="📈" style={{ flex: 1 }}>
               <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={d.monthlyLOB} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+                <ComposedChart data={d.monthlyLOB} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke={C.panelBorder} />
-                  <XAxis dataKey="month" tick={{ fontSize: 10, fill: C.muted, fontFamily: FONT }} tickLine={false} axisLine={{ stroke: C.panelBorder }} />
-                  <YAxis tick={{ fontSize: 10, fill: C.muted, fontFamily: FONT }} tickLine={false} axisLine={false} tickFormatter={fmtUSD} width={70} />
+                  <XAxis dataKey="month" tick={{ fontSize: 10, fill: "#fff", fontFamily: FONT }} tickLine={false} axisLine={{ stroke: C.panelBorder }} />
+                  <YAxis tick={{ fontSize: 10, fill: "#fff", fontFamily: FONT }} tickLine={false} axisLine={false} tickFormatter={fmtUSD} width={70} />
                   <Tooltip content={<CustomTooltip />} />
-                  <Bar dataKey="meta" name="Meta" fill={C.panelBorder} radius={[3, 3, 0, 0]} maxBarSize={24} />
-                  <Bar dataKey="lob" name="LOB Realizado" fill={C.cyan} radius={[3, 3, 0, 0]} maxBarSize={24} />
-                </BarChart>
+                  <Bar dataKey="lob" name="LOB Realizado" fill="#ffffff" radius={[3, 3, 0, 0]} maxBarSize={28} />
+                  <Line type="monotone" dataKey="meta" name="Meta" stroke={C.red} strokeWidth={2} dot={{ fill: C.red, r: 4 }} />
+                </ComposedChart>
               </ResponsiveContainer>
               <div style={{ display: "flex", gap: 20, justifyContent: "center" }}>
-                <span style={{ fontSize: 11, color: C.muted, display: "flex", alignItems: "center", gap: 5, fontFamily: FONT }}><span style={{ width: 12, height: 3, background: C.panelBorder, borderRadius: 2, display: "inline-block" }} /> Meta</span>
-                <span style={{ fontSize: 11, color: C.muted, display: "flex", alignItems: "center", gap: 5, fontFamily: FONT }}><span style={{ width: 12, height: 3, background: C.cyan, borderRadius: 2, display: "inline-block" }} /> LOB Realizado</span>
+                <span style={{ fontSize: 11, color: "#fff", display: "flex", alignItems: "center", gap: 5, fontFamily: FONT }}><span style={{ width: 12, height: 3, background: "#fff", borderRadius: 2, display: "inline-block" }} /> LOB Realizado</span>
+                <span style={{ fontSize: 11, color: "#fff", display: "flex", alignItems: "center", gap: 5, fontFamily: FONT }}><span style={{ width: 12, height: 3, background: C.red, borderRadius: 2, display: "inline-block" }} /> Meta</span>
               </div>
             </Panel>
           )}
@@ -661,13 +680,14 @@ export default function App() {
           </div>
 
           {/* Status */}
-          {config.showStatus && Object.keys(d.statusCount).length > 0 && (
+          {config.showStatus && Object.keys(d.statusData).length > 0 && (
             <Panel title={`Status dos Processos — ${d.currentMonthName}`} icon="📦">
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                {Object.entries(d.statusCount).sort((a, b) => b[1] - a[1]).map(([status, count]) => (
-                  <div key={status} style={{ background: `${C.blue}15`, border: `1px solid ${C.blue}30`, borderRadius: 8, padding: "10px 16px", textAlign: "center", minWidth: 100 }}>
-                    <div style={{ fontSize: 20, fontWeight: 800, color: C.white, fontFamily: FONT }}>{count}</div>
-                    <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, fontFamily: FONT, textTransform: "uppercase", letterSpacing: 0.5 }}>{status}</div>
+                {Object.entries(d.statusData).sort((a, b) => b[1].lob - a[1].lob).map(([status, data]) => (
+                  <div key={status} style={{ background: `${C.blue}15`, border: `1px solid ${C.blue}30`, borderRadius: 8, padding: "12px 16px", minWidth: 130, flex: 1 }}>
+                    <div style={{ fontSize: 12, color: "#fff", fontWeight: 700, fontFamily: FONT, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{status}</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: "#fff", fontFamily: FONT }}>{fmtUSD(data.lob)}</div>
+                    <div style={{ fontSize: 11, color: C.cyan, fontWeight: 600, fontFamily: FONT }}>{data.count} {data.count === 1 ? "processo" : "processos"}</div>
                   </div>
                 ))}
               </div>
