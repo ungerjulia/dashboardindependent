@@ -132,12 +132,15 @@ function processData(lob, metasTrader, metaLinha, metaGlobal) {
   // Filter by current year
   const yearRows = rows.filter(r => r.etdYear === currentYear);
 
-  // Monthly LOB (all months up to current)
-  const monthlyLOB = MONTH_SHORT.slice(0, currentMonth + 1).map((m, i) => {
+  // Monthly LOB — show from (currentMonth-1) to (currentMonth+2)
+  const chartStart = Math.max(0, currentMonth - 1);
+  const chartEnd = Math.min(11, currentMonth + 2);
+  const monthlyLOB = [];
+  for (let i = chartStart; i <= chartEnd; i++) {
     const monthRows = yearRows.filter(r => r.etdMonth === i);
     const total = monthRows.reduce((s, r) => s + r.lob, 0);
-    return { month: m, monthIndex: i, lob: total };
-  });
+    monthlyLOB.push({ month: MONTH_SHORT[i], monthIndex: i, lob: i <= currentMonth ? total : 0 });
+  }
 
   // LOB by trader for current month
   const currentMonthRows = yearRows.filter(r => r.etdMonth === currentMonth);
@@ -158,11 +161,16 @@ function processData(lob, metasTrader, metaLinha, metaGlobal) {
   // Parse Metas_Trader
   const traderMetas = {};
   metasTrader.forEach(r => {
-    const name = r["Trader"] || "";
-    const monthCol = MONTH_NAMES[currentMonth];
-    const metaMes = parseMoney(r[monthCol] || "0");
-    const metaAno = parseMoney(r["Total"] || "0");
-    traderMetas[name] = { metaMes, metaAno };
+    const keys = Object.keys(r);
+    const nameKey = keys.find(k => k.toLowerCase().includes("trader")) || keys[0];
+    const name = (r[nameKey] || "").trim();
+    const currentMonthName = MONTH_NAMES[currentMonth];
+    const normalizedMonth = currentMonthName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const monthKey = keys.find(k => k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() === normalizedMonth);
+    const metaMes = parseMoney(r[monthKey] || "0");
+    const totalKey = keys.find(k => k.toLowerCase().includes("total"));
+    const metaAno = parseMoney(r[totalKey] || "0");
+    if (name) traderMetas[name] = { metaMes, metaAno };
   });
 
   const traderRanking = Object.values(traderMap).map(t => ({
@@ -189,11 +197,17 @@ function processData(lob, metasTrader, metaLinha, metaGlobal) {
 
   const linhaMetas = {};
   metaLinha.forEach(r => {
-    const name = r["Linha_de_negócio"] || r["Linha_de_negocio"] || r["Linha de negócio"] || "";
-    const monthCol = MONTH_NAMES[currentMonth];
-    const metaMes = parseMoney(r[monthCol] || "0");
-    const metaAno = parseMoney(r["Total"] || "0");
-    linhaMetas[name] = { metaMes, metaAno };
+    const keys = Object.keys(r);
+    const nameKey = keys.find(k => k.toLowerCase().includes("linha")) || keys[0];
+    const name = (r[nameKey] || "").trim();
+    // Find month column by matching month name (accent-insensitive)
+    const currentMonthName = MONTH_NAMES[currentMonth];
+    const normalizedMonth = currentMonthName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const monthKey = keys.find(k => k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() === normalizedMonth);
+    const metaMes = parseMoney(r[monthKey] || "0");
+    const totalKey = keys.find(k => k.toLowerCase().includes("total"));
+    const metaAno = parseMoney(r[totalKey] || "0");
+    if (name) linhaMetas[name] = { metaMes, metaAno };
   });
 
   const linhaRanking = Object.values(linhaMap).map(l => ({
@@ -276,7 +290,7 @@ function Panel({ title, children, style, icon }) {
       {title && (
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {icon && <span style={{ fontSize: 14 }}>{icon}</span>}
-          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, textTransform: "uppercase", color: C.muted, fontFamily: FONT }}>{title}</span>
+          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, textTransform: "uppercase", color: "#fff", fontFamily: FONT }}>{title}</span>
         </div>
       )}
       {children}
