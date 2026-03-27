@@ -710,7 +710,7 @@ export default function App() {
                   <XAxis dataKey="month" tick={{ fontSize: 10, fill: "#fff", fontFamily: FONT }} tickLine={false} axisLine={{ stroke: C.panelBorder }} />
                   <YAxis tick={{ fontSize: 10, fill: "#fff", fontFamily: FONT }} tickLine={false} axisLine={false} tickFormatter={fmtUSD} width={70} />
                   <Tooltip content={<CustomTooltip />} />
-                  <Bar dataKey="lob" name="LOB Realizado" fill="#ffffff" radius={[3, 3, 0, 0]} maxBarSize={28} />
+                  <Bar dataKey="lob" name="LOB Realizado" fill="#ffffff" radius={[3, 3, 0, 0]} maxBarSize={28} label={{ position: "top", fill: "#ffffff", fontSize: 11, fontWeight: 700, fontFamily: FONT, formatter: (v) => v > 0 ? fmtUSD(v) : "" }} />
                   <Line type="monotone" dataKey="meta" name="Meta" stroke={C.red} strokeWidth={2} dot={{ fill: C.red, r: 4 }} />
                 </ComposedChart>
               </ResponsiveContainer>
