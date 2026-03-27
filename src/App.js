@@ -110,22 +110,40 @@ function processData(lob, metasTrader, metaLinha, metaGlobal) {
   const currentYear = now.getFullYear();
 
   // Parse LOB rows
+  // Map headers flexibly once
+  const sampleKeys = lob.length > 0 ? Object.keys(lob[0]) : [];
+  const headerMap = {};
+  sampleKeys.forEach(k => {
+    const lk = k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[_\s]/g, "");
+    if (lk.includes("numero") || lk.includes("processo") && !lk.includes("status")) headerMap.processo = k;
+    if (lk.includes("responsavel") || lk.includes("operacional")) headerMap.responsavel = k;
+    if (lk === "trader") headerMap.trader = k;
+    if (lk.includes("linhadenegocio") || (lk.includes("linha") && lk.includes("negocio"))) headerMap.linha = k;
+    if (lk.includes("status")) headerMap.status = k;
+    if (lk === "cliente") headerMap.cliente = k;
+    if (lk === "fornecedor") headerMap.fornecedor = k;
+    if (lk === "produto") headerMap.produto = k;
+    if (lk.includes("margem")) headerMap.margem = k;
+    if (lk === "etd") headerMap.etd = k;
+    if (lk === "lob") headerMap.lob = k;
+  });
+
   const rows = lob.map(r => {
-    const etd = parseETD(r["ETD"]);
+    const etd = parseETD(r[headerMap.etd] || "");
     return {
-      processo: r["Numero_Processo"] || r["Número_Processo"] || "",
-      responsavel: r["Responsavel_Operacional"] || r["Responsável_Operacional"] || "",
-      trader: r["Trader"] || "",
-      linha: r["Linha de Negócio"] || r["Linha de Negocio"] || r["Linha_de_Negócio"] || "",
-      status: r["Status_Processo"] || "",
-      cliente: r["Cliente"] || "",
-      fornecedor: r["Fornecedor"] || "",
-      produto: r["Produto"] || "",
-      margem: parseMoney(r["Margem de venda"] || r["Margem_de_venda"] || "0"),
+      processo: r[headerMap.processo] || "",
+      responsavel: r[headerMap.responsavel] || "",
+      trader: (r[headerMap.trader] || "").trim(),
+      linha: (r[headerMap.linha] || "").trim(),
+      status: (r[headerMap.status] || "").trim(),
+      cliente: r[headerMap.cliente] || "",
+      fornecedor: r[headerMap.fornecedor] || "",
+      produto: r[headerMap.produto] || "",
+      margem: parseMoney(r[headerMap.margem] || "0"),
       etd,
       etdMonth: etd ? etd.getMonth() : -1,
       etdYear: etd ? etd.getFullYear() : -1,
-      lob: parseMoney(r["LOB"] || "0"),
+      lob: parseMoney(r[headerMap.lob] || "0"),
     };
   });
 
@@ -139,7 +157,7 @@ function processData(lob, metasTrader, metaLinha, metaGlobal) {
   for (let i = chartStart; i <= chartEnd; i++) {
     const monthRows = yearRows.filter(r => r.etdMonth === i);
     const total = monthRows.reduce((s, r) => s + r.lob, 0);
-    monthlyLOB.push({ month: MONTH_SHORT[i], monthIndex: i, lob: i <= currentMonth ? total : 0 });
+    monthlyLOB.push({ month: MONTH_SHORT[i], monthIndex: i, lob: total });
   }
 
   // LOB by trader for current month
@@ -166,20 +184,34 @@ function processData(lob, metasTrader, metaLinha, metaGlobal) {
     const name = (r[nameKey] || "").trim();
     const currentMonthName = MONTH_NAMES[currentMonth];
     const normalizedMonth = currentMonthName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-    const monthKey = keys.find(k => k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() === normalizedMonth);
-    const metaMes = parseMoney(r[monthKey] || "0");
-    const totalKey = keys.find(k => k.toLowerCase().includes("total"));
-    const metaAno = parseMoney(r[totalKey] || "0");
+    let monthKey = keys.find(k => k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim() === normalizedMonth);
+    if (!monthKey) monthKey = keys.find(k => k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim().startsWith(normalizedMonth.substring(0, 3)));
+    const metaMes = parseMoney(monthKey ? (r[monthKey] || "0") : "0");
+    const totalKey = keys.find(k => k.toLowerCase().trim() === "total") || keys.find(k => k.toLowerCase().includes("total"));
+    const metaAno = parseMoney(totalKey ? (r[totalKey] || "0") : "0");
     if (name) traderMetas[name] = { metaMes, metaAno };
   });
 
-  const traderRanking = Object.values(traderMap).map(t => ({
-    ...t,
-    metaMes: traderMetas[t.name]?.metaMes || 0,
-    metaAno: traderMetas[t.name]?.metaAno || 0,
-    pctMes: traderMetas[t.name]?.metaMes ? (t.lobMes / traderMetas[t.name].metaMes * 100) : 0,
-    pctAno: traderMetas[t.name]?.metaAno ? (t.lobAno / traderMetas[t.name].metaAno * 100) : 0,
-  })).sort((a, b) => b.lobMes - a.lobMes);
+  const findTraderMeta = (traderName) => {
+    if (traderMetas[traderName]) return traderMetas[traderName];
+    const norm = traderName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+    for (const [k, v] of Object.entries(traderMetas)) {
+      const nk = k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+      if (nk === norm || nk.includes(norm) || norm.includes(nk)) return v;
+    }
+    return { metaMes: 0, metaAno: 0 };
+  };
+
+  const traderRanking = Object.values(traderMap).map(t => {
+    const meta = findTraderMeta(t.name);
+    return {
+      ...t,
+      metaMes: meta.metaMes,
+      metaAno: meta.metaAno,
+      pctMes: meta.metaMes ? (t.lobMes / meta.metaMes * 100) : 0,
+      pctAno: meta.metaAno ? (t.lobAno / meta.metaAno * 100) : 0,
+    };
+  }).sort((a, b) => b.lobMes - a.lobMes);
 
   // LOB by Linha de Negócio
   const linhaMap = {};
@@ -198,25 +230,42 @@ function processData(lob, metasTrader, metaLinha, metaGlobal) {
   const linhaMetas = {};
   metaLinha.forEach(r => {
     const keys = Object.keys(r);
-    const nameKey = keys.find(k => k.toLowerCase().includes("linha")) || keys[0];
+    const nameKey = keys.find(k => k.toLowerCase().replace(/[_\s]/g, "").includes("linha")) || keys[0];
     const name = (r[nameKey] || "").trim();
-    // Find month column by matching month name (accent-insensitive)
+    // Find month column - try exact match first, then partial
     const currentMonthName = MONTH_NAMES[currentMonth];
     const normalizedMonth = currentMonthName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-    const monthKey = keys.find(k => k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() === normalizedMonth);
-    const metaMes = parseMoney(r[monthKey] || "0");
-    const totalKey = keys.find(k => k.toLowerCase().includes("total"));
-    const metaAno = parseMoney(r[totalKey] || "0");
+    let monthKey = keys.find(k => k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim() === normalizedMonth);
+    if (!monthKey) monthKey = keys.find(k => k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim().startsWith(normalizedMonth.substring(0, 3)));
+    if (!monthKey) monthKey = keys.find(k => normalizedMonth.startsWith(k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim().substring(0, 3)));
+    const metaMes = parseMoney(monthKey ? (r[monthKey] || "0") : "0");
+    const totalKey = keys.find(k => k.toLowerCase().trim() === "total") || keys.find(k => k.toLowerCase().includes("total"));
+    const metaAno = parseMoney(totalKey ? (r[totalKey] || "0") : "0");
     if (name) linhaMetas[name] = { metaMes, metaAno };
+    console.log("Meta Linha:", name, "MonthKey:", monthKey, "MetaMes:", metaMes, "MetaAno:", metaAno, "Keys:", keys);
   });
 
-  const linhaRanking = Object.values(linhaMap).map(l => ({
-    ...l,
-    metaMes: linhaMetas[l.name]?.metaMes || 0,
-    metaAno: linhaMetas[l.name]?.metaAno || 0,
-    pctMes: linhaMetas[l.name]?.metaMes ? (l.lobMes / linhaMetas[l.name].metaMes * 100) : 0,
-    pctAno: linhaMetas[l.name]?.metaAno ? (l.lobAno / linhaMetas[l.name].metaAno * 100) : 0,
-  })).sort((a, b) => b.lobAno - a.lobAno);
+  // Helper to match linha names flexibly
+  const findLinhaMeta = (linhaName) => {
+    if (linhaMetas[linhaName]) return linhaMetas[linhaName];
+    const norm = linhaName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+    for (const [k, v] of Object.entries(linhaMetas)) {
+      const nk = k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+      if (nk === norm || nk.includes(norm) || norm.includes(nk)) return v;
+    }
+    return { metaMes: 0, metaAno: 0 };
+  };
+
+  const linhaRanking = Object.values(linhaMap).map(l => {
+    const meta = findLinhaMeta(l.name);
+    return {
+      ...l,
+      metaMes: meta.metaMes,
+      metaAno: meta.metaAno,
+      pctMes: meta.metaMes ? (l.lobMes / meta.metaMes * 100) : 0,
+      pctAno: meta.metaAno ? (l.lobAno / meta.metaAno * 100) : 0,
+    };
+  }).sort((a, b) => b.lobAno - a.lobAno);
 
   // Meta Global
   const globalMetas = {};
@@ -359,7 +408,7 @@ function TraderRow({ rank, t, maxLob, viewMode }) {
             <div style={{ width: `${Math.min(barW, 100)}%`, height: "100%", background: `linear-gradient(90deg, ${C.blue}, ${C.cyan})`, borderRadius: 2, transition: "width 1s ease" }} />
           </div>
           <span style={{ fontSize: 10, color: pctVal >= 100 ? C.green : C.amber, fontWeight: 700, fontFamily: FONT, flexShrink: 0 }}>{pctVal.toFixed(0)}%</span>
-          <span style={{ fontSize: 10, color: C.muted, fontFamily: FONT, flexShrink: 0 }}>{viewMode === "ano" ? t.ops : t.opsMes} ops</span>
+          <span style={{ fontSize: 10, color: C.muted, fontFamily: FONT, flexShrink: 0 }}>{viewMode === "ano" ? t.ops : t.opsMes} proc.</span>
         </div>
       </div>
     </div>
@@ -645,7 +694,7 @@ export default function App() {
           <KPICard label={`LOB ${d.currentMonthName}`} value={fmtUSD(d.lobMesAtual)} meta={fmtUSD(d.metaMesAtual)} icon="💰" color={C.green} />
           <KPICard label="LOB Trimestral" value={fmtUSD(d.lobTrimestral)} meta={fmtUSD(d.metaTrimestral)} icon="📊" color={C.cyan} />
           <KPICard label="LOB Anual" value={fmtUSD(d.lobAnoTotal)} meta={fmtUSD(d.metaAnoTotal)} icon="🏆" color={C.amber} />
-          <KPICard label="Processos do Mês" value={`${d.totalOps}`} meta={`Ano: ${d.totalOpsAno}`} icon="📋" color={C.blue} />
+          <KPICard label="Processos do Mês" value={`${d.totalOps}`} meta={null} icon="📋" color={C.blue} />
         </div>
       )}
 
@@ -717,7 +766,7 @@ export default function App() {
             </div>
             <div style={{ borderTop: `1px solid ${C.panelBorder}`, paddingTop: 10, marginTop: 4, display: "flex", justifyContent: "space-between", fontSize: 11, color: C.muted, fontFamily: FONT }}>
               <span>Total: <span style={{ color: C.white, fontWeight: 700 }}>{fmtUSD(d.traderRanking.reduce((s, t) => s + (config.viewMode === "ano" ? t.lobAno : t.lobMes), 0))}</span></span>
-              <span>Ops: <span style={{ color: C.white, fontWeight: 700 }}>{d.traderRanking.reduce((s, t) => s + (config.viewMode === "ano" ? t.ops : t.opsMes), 0)}</span></span>
+              <span>Processos: <span style={{ color: C.white, fontWeight: 700 }}>{d.traderRanking.reduce((s, t) => s + (config.viewMode === "ano" ? t.ops : t.opsMes), 0)}</span></span>
             </div>
           </Panel>
         )}
