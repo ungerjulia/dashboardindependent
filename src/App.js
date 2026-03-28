@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import * as recharts from "recharts";
 
-const { AreaChart, Area, BarChart, Bar, ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } = recharts;
+const { AreaChart, Area, BarChart, Bar, ComposedChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } = recharts;
 
 // ══════════════════════════════════════════════════════════════
 //  CONFIG
@@ -150,14 +150,15 @@ function processData(lob, metasTrader, metaLinha, metaGlobal) {
   // Filter by current year
   const yearRows = rows.filter(r => r.etdYear === currentYear);
 
-  // Monthly LOB — show from (currentMonth-1) to (currentMonth+2)
+  // Monthly LOB — show from (currentMonth-1) to (currentMonth+2), split by embarcado
   const chartStart = Math.max(0, currentMonth - 1);
   const chartEnd = Math.min(11, currentMonth + 2);
   const monthlyLOB = [];
   for (let i = chartStart; i <= chartEnd; i++) {
     const monthRows = yearRows.filter(r => r.etdMonth === i);
-    const total = monthRows.reduce((s, r) => s + r.lob, 0);
-    monthlyLOB.push({ month: MONTH_SHORT[i], monthIndex: i, lob: total });
+    const lobEmbarcado = monthRows.filter(r => r.status.toLowerCase() === "embarcado").reduce((s, r) => s + r.lob, 0);
+    const lobOutros = monthRows.filter(r => r.status.toLowerCase() !== "embarcado").reduce((s, r) => s + r.lob, 0);
+    monthlyLOB.push({ month: MONTH_SHORT[i], monthIndex: i, embarcado: lobEmbarcado, outros: lobOutros, lob: lobEmbarcado + lobOutros });
   }
 
   // LOB by trader for current month
@@ -322,6 +323,16 @@ function processData(lob, metasTrader, metaLinha, metaGlobal) {
   const topMargens = [...margensDoMes].sort((a, b) => b.margem - a.margem).slice(0, 3);
   const bottomMargens = [...margensDoMes].sort((a, b) => a.margem - b.margem).slice(0, 3);
 
+  // Products per linha for pizza charts (current month)
+  const produtosPorLinha = {};
+  currentMonthRows.forEach(r => {
+    if (!r.linha || !r.produto) return;
+    if (!produtosPorLinha[r.linha]) produtosPorLinha[r.linha] = {};
+    if (!produtosPorLinha[r.linha][r.produto]) produtosPorLinha[r.linha][r.produto] = { count: 0, lob: 0 };
+    produtosPorLinha[r.linha][r.produto].count += 1;
+    produtosPorLinha[r.linha][r.produto].lob += r.lob;
+  });
+
   return {
     monthlyLOB: monthlyWithMeta,
     traderRanking,
@@ -334,6 +345,7 @@ function processData(lob, metasTrader, metaLinha, metaGlobal) {
     statusData,
     topMargens,
     bottomMargens,
+    produtosPorLinha,
     currentMonthName: MONTH_NAMES[currentMonth],
   };
 }
@@ -590,7 +602,7 @@ function SettingsPanel({ config, setConfig, onClose }) {
 // ══════════════════════════════════════════════════════════════
 //  CAROUSEL SLIDES
 // ══════════════════════════════════════════════════════════════
-const SLIDE_NAMES = ["Visão Geral", "Ranking de Traders", "Linhas de Negócio", "Status dos Processos", "Metas Globais", "Margens de Venda"];
+const SLIDE_NAMES = ["Visão Geral", "Ranking de Traders", "Linhas de Negócio", "Status dos Processos", "Metas Globais", "Margens de Venda", "Produtos por Linha"];
 const SLIDE_INTERVAL = 20000;
 
 function SlideOverview({ d }) {
@@ -603,16 +615,22 @@ function SlideOverview({ d }) {
         <KPICard label="Processos do Mês" value={`${d.totalOps}`} meta={`Ano: ${d.totalOpsAno} processos`} icon="📋" color={C.blue} />
       </div>
       <Panel title="LOB Mensal vs Meta" icon="📈" style={{ flex: 1 }}>
-        <ResponsiveContainer width="100%" height={300}>
+        <ResponsiveContainer width="100%" height={280}>
           <ComposedChart data={d.monthlyLOB} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={C.panelBorder} />
             <XAxis dataKey="month" tick={{ fontSize: 14, fill: "#fff", fontFamily: FONT }} tickLine={false} axisLine={{ stroke: C.panelBorder }} />
             <YAxis tick={{ fontSize: 12, fill: "#fff", fontFamily: FONT }} tickLine={false} axisLine={false} tickFormatter={fmtUSD} width={80} />
             <Tooltip content={<CustomTooltip />} />
-            <Bar dataKey="lob" name="LOB Realizado" fill="#ffffff" radius={[3, 3, 0, 0]} maxBarSize={40} label={{ position: "top", fill: "#ffffff", fontSize: 13, fontWeight: 700, fontFamily: FONT, formatter: (v) => v > 0 ? fmtUSD(v) : "" }} />
+            <Bar dataKey="embarcado" name="Embarcado" stackId="lob" fill="#ffffff" radius={[0, 0, 0, 0]} maxBarSize={36} />
+            <Bar dataKey="outros" name="Outros Status" stackId="lob" fill="#4a5568" radius={[3, 3, 0, 0]} maxBarSize={36} label={{ position: "top", fill: "#fff", fontSize: 12, fontWeight: 700, fontFamily: FONT, formatter: (v, entry) => { const total = (entry?.embarcado || 0) + (v || 0); return total > 0 ? fmtUSD(total) : ""; }}} />
             <Line type="monotone" dataKey="meta" name="Meta" stroke={C.red} strokeWidth={3} dot={{ fill: C.red, r: 5 }} />
           </ComposedChart>
         </ResponsiveContainer>
+        <div style={{ display: "flex", gap: 24, justifyContent: "center", marginTop: 4 }}>
+          <span style={{ fontSize: 12, color: "#fff", display: "flex", alignItems: "center", gap: 6, fontFamily: FONT }}><span style={{ width: 14, height: 10, background: "#fff", borderRadius: 2, display: "inline-block" }} /> Embarcado (confirmado)</span>
+          <span style={{ fontSize: 12, color: "#fff", display: "flex", alignItems: "center", gap: 6, fontFamily: FONT }}><span style={{ width: 14, height: 10, background: "#4a5568", borderRadius: 2, display: "inline-block" }} /> Outros Status (projetado)</span>
+          <span style={{ fontSize: 12, color: "#fff", display: "flex", alignItems: "center", gap: 6, fontFamily: FONT }}><span style={{ width: 14, height: 4, background: C.red, borderRadius: 2, display: "inline-block" }} /> Meta</span>
+        </div>
       </Panel>
     </div>
   );
@@ -670,10 +688,10 @@ function SlideLinhas({ d }) {
               <div style={{ height: 10, background: C.panelBorder, borderRadius: 5, overflow: "hidden", marginBottom: 8 }}>
                 <div style={{ width: `${Math.min(l.pctMes, 100)}%`, height: "100%", background: color, borderRadius: 5 }} />
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, color: "#fff", fontFamily: FONT }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 18, color: "#fff", fontFamily: FONT, alignItems: "center" }}>
                 <span>Meta: {fmtUSD(l.metaMes)}</span>
-                <span style={{ color: l.pctMes >= 100 ? C.green : C.amber, fontWeight: 800 }}>{l.pctMes.toFixed(1)}%</span>
-                <span>{l.metaMes - l.lobMes > 0 ? `Faltam ${fmtUSD(l.metaMes - l.lobMes)}` : "Meta batida!"}</span>
+                <span style={{ color: l.pctMes >= 100 ? C.green : C.amber, fontWeight: 900, fontSize: 24 }}>{l.pctMes.toFixed(1)}%</span>
+                <span style={{ fontWeight: 700, fontSize: 18, color: l.metaMes - l.lobMes > 0 ? C.amber : C.green }}>{l.metaMes - l.lobMes > 0 ? `Faltam ${fmtUSD(l.metaMes - l.lobMes)}` : "Meta batida! 🎉"}</span>
               </div>
             </div>
           );
@@ -706,13 +724,40 @@ function SlideStatus({ d }) {
 }
 
 function SlideGauges({ d }) {
+  const BigGauge = ({ value, max, period, color }) => {
+    const pct = max > 0 ? Math.min((value / max) * 100, 150) : 0;
+    const displayPct = max > 0 ? (value / max) * 100 : 0;
+    const remaining = max - value;
+    const arcPct = Math.min(pct, 100);
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, flex: 1 }}>
+        <span style={{ fontSize: 20, fontWeight: 800, letterSpacing: 2, color: "#fff", textTransform: "uppercase", fontFamily: FONT }}>{period}</span>
+        <div style={{ position: "relative", width: 260, height: 160 }}>
+          <svg viewBox="0 0 120 75" style={{ width: "100%", height: "100%" }}>
+            <path d="M 10 65 A 50 50 0 0 1 110 65" fill="none" stroke={C.panelBorder} strokeWidth="6" strokeLinecap="round" />
+            <path d="M 10 65 A 50 50 0 0 1 110 65" fill="none" stroke={displayPct >= 100 ? C.green : color} strokeWidth="6" strokeLinecap="round" strokeDasharray={`${(arcPct / 100) * 157} 157`} style={{ filter: `drop-shadow(0 0 8px ${color}80)` }} />
+          </svg>
+          <div style={{ position: "absolute", top: "42%", left: "50%", transform: "translate(-50%, -10%)", textAlign: "center" }}>
+            <div style={{ fontSize: 44, fontWeight: 900, color: displayPct >= 100 ? C.green : "#fff", fontFamily: FONT, lineHeight: 1 }}>{displayPct.toFixed(1)}%</div>
+          </div>
+        </div>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 22, color: "#fff", fontWeight: 800, fontFamily: FONT }}>{fmtUSD(value)}</div>
+          <div style={{ fontSize: 16, color: "#fff", fontFamily: FONT, marginTop: 4 }}>
+            {remaining > 0 ? <>Faltam <span style={{ color: C.amber, fontWeight: 800 }}>{fmtUSD(remaining)}</span></> : <span style={{ color: C.green, fontWeight: 800 }}>Meta batida! +{fmtUSD(Math.abs(remaining))}</span>}
+          </div>
+          <div style={{ fontSize: 13, color: C.muted, fontFamily: FONT, marginTop: 2 }}>Meta: {fmtUSD(max)}</div>
+        </div>
+      </div>
+    );
+  };
   return (
     <div style={{ flex: 1, padding: "0 40px", display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>🎯 ATINGIMENTO DE META GLOBAL</div>
-      <div style={{ display: "flex", gap: 40, justifyContent: "center", flex: 1, alignItems: "center", transform: "scale(1.8)", transformOrigin: "center center" }}>
-        <GaugeChart value={d.lobMesAtual} max={d.metaMesAtual} period="Mensal" color={C.green} />
-        <GaugeChart value={d.lobTrimestral} max={d.metaTrimestral} period="Trimestral" color={C.cyan} />
-        <GaugeChart value={d.lobAnoTotal} max={d.metaAnoTotal} period="Anual" color={C.amber} />
+      <div style={{ display: "flex", gap: 20, justifyContent: "center", flex: 1, alignItems: "center" }}>
+        <BigGauge value={d.lobMesAtual} max={d.metaMesAtual} period="Mensal" color={C.green} />
+        <BigGauge value={d.lobTrimestral} max={d.metaTrimestral} period="Trimestral" color={C.cyan} />
+        <BigGauge value={d.lobAnoTotal} max={d.metaAnoTotal} period="Anual" color={C.amber} />
       </div>
     </div>
   );
@@ -752,6 +797,52 @@ function SlideMargens({ d }) {
           {d.bottomMargens.map((m, i) => <MargemCard key={m.processo} item={m} rank={i} type="bottom" />)}
           {d.bottomMargens.length === 0 && <div style={{ color: C.muted, textAlign: "center", fontSize: 14 }}>Sem dados de margem no mês</div>}
         </div>
+      </div>
+    </div>
+  );
+}
+
+const PIE_COLORS = ["#00e5ff", "#2979ff", "#ffab00", "#00e676", "#ff6b6b", "#ab47bc", "#26a69a", "#ff7043", "#78909c", "#5c6bc0", "#8d6e63", "#ef5350"];
+
+function SlideProdutos({ d }) {
+  const linhas = Object.entries(d.produtosPorLinha);
+  const linhaColors = { "Import": C.blue, "Feed Meal": C.cyan, "Meat": "#ff6b6b" };
+
+  return (
+    <div style={{ flex: 1, padding: "0 20px", display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>🥧 PRODUTOS POR LINHA DE NEGÓCIO — {d.currentMonthName.toUpperCase()}</div>
+      <div style={{ display: "flex", gap: 16, flex: 1, justifyContent: "center", alignItems: "center" }}>
+        {linhas.map(([linha, produtos]) => {
+          const entries = Object.entries(produtos).sort((a, b) => b[1].lob - a[1].lob);
+          const totalLob = entries.reduce((s, [, v]) => s + v.lob, 0);
+          const pieData = entries.map(([name, v]) => ({ name: name.length > 20 ? name.substring(0, 20) + "..." : name, fullName: name, value: v.lob, count: v.count, pct: totalLob > 0 ? ((v.lob / totalLob) * 100).toFixed(1) : 0 }));
+          const color = linhaColors[linha] || C.amber;
+
+          return (
+            <div key={linha} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+              <div style={{ fontSize: 18, fontWeight: 800, color, fontFamily: FONT }}>{linha}</div>
+              <div style={{ fontSize: 14, color: "#fff", fontWeight: 700 }}>{fmtUSD(totalLob)}</div>
+              <ResponsiveContainer width="100%" height={240}>
+                <PieChart>
+                  <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90} innerRadius={40} paddingAngle={2} label={({ name, pct }) => `${pct}%`} labelLine={{ stroke: C.muted, strokeWidth: 1 }}>
+                    {pieData.map((_, idx) => <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip formatter={(v) => fmtUSD(v)} contentStyle={{ background: "#1a2332ee", border: `1px solid ${C.panelBorder}`, borderRadius: 6, fontFamily: FONT }} itemStyle={{ color: "#fff" }} labelStyle={{ color: C.muted }} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div style={{ display: "flex", flexDirection: "column", gap: 3, maxHeight: 120, overflow: "auto", width: "100%" }}>
+                {pieData.map((p, idx) => (
+                  <div key={p.fullName} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "#fff", fontFamily: FONT }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 2, background: PIE_COLORS[idx % PIE_COLORS.length], flexShrink: 0, display: "inline-block" }} />
+                    <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.fullName}</span>
+                    <span style={{ fontWeight: 700, flexShrink: 0 }}>{p.pct}%</span>
+                    <span style={{ color: C.muted, flexShrink: 0 }}>({p.count})</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -841,6 +932,7 @@ export default function App() {
     <SlideStatus d={d} />,
     <SlideGauges d={d} />,
     <SlideMargens d={d} />,
+    <SlideProdutos d={d} />,
   ];
 
   return (
