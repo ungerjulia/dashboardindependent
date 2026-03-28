@@ -1083,14 +1083,14 @@ export default function App() {
           {config.showChart && (
             <Panel title="LOB Mensal vs Meta" icon="📈" style={{ flex: 1 }}>
               <ResponsiveContainer width="100%" height={260}>
-                <ComposedChart data={d.monthlyLOB} margin={{ top: 35, right: 10, left: 0, bottom: 0 }}>
+                <ComposedChart data={d.monthlyLOB} margin={{ top: 45, right: 10, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke={C.panelBorder} />
                   <XAxis dataKey="month" tick={{ fontSize: 12, fill: "#fff", fontFamily: FONT }} tickLine={false} axisLine={{ stroke: C.panelBorder }} />
                   <YAxis tick={{ fontSize: 11, fill: "#fff", fontFamily: FONT }} tickLine={false} axisLine={false} tickFormatter={fmtUSD} width={75} />
                   <Tooltip content={<CustomTooltip />} />
                   <Bar dataKey="embarcado" name="Embarcado" stackId="lob" fill="#ffffff" maxBarSize={32} />
-                  <Bar dataKey="outros" name="Outros Status" stackId="lob" fill="#4a5568" radius={[3, 3, 0, 0]} maxBarSize={32} label={(props) => { const { x, y, width, index } = props; const item = d.monthlyLOB[index]; if (!item) return null; const total = item.embarcado + item.outros; if (total <= 0) return null; return <text x={x + width / 2} y={y - 8} textAnchor="middle" fill="#fff" fontSize={10} fontWeight={700} fontFamily={FONT}>{fmtUSD(total)}</text>; }} />
-                  <Line type="monotone" dataKey="meta" name="Meta" stroke={C.red} strokeWidth={2} dot={{ fill: C.red, r: 4 }} />
+                  <Bar dataKey="outros" name="Outros Status" stackId="lob" fill="#4a5568" radius={[3, 3, 0, 0]} maxBarSize={32} label={(props) => { const { x, y, width, index } = props; const item = d.monthlyLOB[index]; if (!item) return null; const total = item.embarcado + item.outros; const meta = item.meta || 0; const diff = total - meta; if (total <= 0) return null; return (<g><text x={x + width / 2} y={y - 28} textAnchor="middle" fill="#fff" fontSize={11} fontWeight={800} fontFamily={FONT}>{fmtUSD(total)}</text>{meta > 0 && <text x={x + width / 2} y={y - 14} textAnchor="middle" fill={diff >= 0 ? C.green : C.red} fontSize={9} fontWeight={700} fontFamily={FONT}>{diff >= 0 ? "+" : ""}{fmtUSD(diff)}</text>}</g>); }} />
+                  <Line type="monotone" dataKey="meta" name="Meta" stroke={C.red} strokeWidth={2} dot={(props) => { const { cx, cy, value } = props; if (!value) return null; return (<g><circle cx={cx} cy={cy} r={4} fill={C.red} /><text x={cx} y={cy + 16} textAnchor="middle" fill={C.red} fontSize={9} fontWeight={700} fontFamily={FONT}>{fmtUSD(value)}</text></g>); }} />
                 </ComposedChart>
               </ResponsiveContainer>
               <div style={{ display: "flex", gap: 18, justifyContent: "center", marginTop: 4 }}>
