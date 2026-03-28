@@ -649,50 +649,42 @@ function SlideOverview({ d }) {
       </g>
     );
   };
-  // Current month data for CEO summary
-  const currentMonthData = d.monthlyLOB.find(m => m.month === d.currentMonthName.substring(0, 3)) || {};
-  const embarcadoMes = currentMonthData.embarcado || 0;
-  const outrosMes = currentMonthData.outros || 0;
-  const totalMes = embarcadoMes + outrosMes;
+  // Current month status breakdown for CEO summary
+  const totalMes = d.lobMesAtual;
   const metaMes = d.metaMesAtual;
   const diffMes = totalMes - metaMes;
+  const statusEntries = Object.entries(d.statusData).sort((a, b) => b[1].lob - a[1].lob);
+  const statusColors = { "Embarcado": "#fff", "Com Booking": C.cyan, "Sem Booking": C.amber, "Claim": C.red, "Stand by": C.muted };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1, padding: "0 20px" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1, padding: "0 20px" }}>
       <div style={{ display: "flex", gap: 12 }}>
         <KPICard label={`LOB ${d.currentMonthName}`} value={fmtUSD(d.lobMesAtual)} meta={fmtUSD(d.metaMesAtual)} icon="💰" color={C.green} />
         <KPICard label="LOB Trimestral" value={fmtUSD(d.lobTrimestral)} meta={fmtUSD(d.metaTrimestral)} icon="📊" color={C.cyan} />
         <KPICard label="LOB Anual" value={fmtUSD(d.lobAnoTotal)} meta={fmtUSD(d.metaAnoTotal)} icon="🏆" color={C.amber} />
         <KPICard label="Processos do Mês" value={`${d.totalOps}`} meta={`Ano: ${d.totalOpsAno} processos`} icon="📋" color={C.blue} />
       </div>
-      {/* CEO Summary */}
-      <div style={{ background: `linear-gradient(135deg, ${C.panel}, #1a2535)`, border: `1px solid ${C.panelBorder}`, borderRadius: 10, padding: "16px 28px", display: "flex", alignItems: "center", justifyContent: "center", gap: 12, flexWrap: "wrap" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 13, color: C.muted, fontFamily: FONT, fontWeight: 600 }}>{d.currentMonthName.toUpperCase()}</span>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ width: 12, height: 12, background: "#fff", borderRadius: 2, display: "inline-block" }} />
-          <span style={{ fontSize: 13, color: C.muted, fontFamily: FONT }}>Embarcado:</span>
-          <span style={{ fontSize: 20, fontWeight: 900, color: "#fff", fontFamily: FONT }}>{fmtUSD(embarcadoMes)}</span>
-        </div>
-        <span style={{ fontSize: 20, color: C.muted, fontWeight: 300 }}>+</span>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ width: 12, height: 12, background: "#4a5568", borderRadius: 2, display: "inline-block" }} />
-          <span style={{ fontSize: 13, color: C.muted, fontFamily: FONT }}>Outros:</span>
-          <span style={{ fontSize: 20, fontWeight: 900, color: "#9ca3af", fontFamily: FONT }}>{fmtUSD(outrosMes)}</span>
-        </div>
-        <span style={{ fontSize: 20, color: C.muted, fontWeight: 300 }}>=</span>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ fontSize: 13, color: C.muted, fontFamily: FONT }}>Total:</span>
-          <span style={{ fontSize: 24, fontWeight: 900, color: C.cyan, fontFamily: FONT }}>{fmtUSD(totalMes)}</span>
-        </div>
-        <div style={{ width: 2, height: 30, background: C.panelBorder, margin: "0 8px" }} />
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ fontSize: 13, color: C.muted, fontFamily: FONT }}>Meta:</span>
-          <span style={{ fontSize: 20, fontWeight: 800, color: C.red, fontFamily: FONT }}>{fmtUSD(metaMes)}</span>
-        </div>
-        <div style={{ background: diffMes >= 0 ? `${C.green}20` : `${C.red}20`, border: `1px solid ${diffMes >= 0 ? C.green : C.red}40`, borderRadius: 8, padding: "6px 14px" }}>
-          <span style={{ fontSize: 20, fontWeight: 900, color: diffMes >= 0 ? C.green : C.red, fontFamily: FONT }}>{diffMes >= 0 ? "+" : ""}{fmtUSD(diffMes)} {diffMes >= 0 ? "✓" : "✗"}</span>
+      {/* CEO Summary — per status */}
+      <div style={{ background: `linear-gradient(135deg, ${C.panel}, #1a2535)`, border: `1px solid ${C.panelBorder}`, borderRadius: 10, padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 12, color: C.muted, fontFamily: FONT, fontWeight: 700, marginRight: 4 }}>{d.currentMonthName.toUpperCase()}</span>
+        {statusEntries.map(([status, sdata], i) => {
+          const sColor = statusColors[status] || C.blue;
+          return (
+            <div key={status} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              {i > 0 && <span style={{ fontSize: 16, color: C.muted, fontWeight: 300, margin: "0 2px" }}>+</span>}
+              <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT }}>{status}:</span>
+              <span style={{ fontSize: 16, fontWeight: 800, color: sColor, fontFamily: FONT }}>{fmtUSD(sdata.lob)}</span>
+            </div>
+          );
+        })}
+        <span style={{ fontSize: 18, color: C.muted, fontWeight: 300, margin: "0 4px" }}>=</span>
+        <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT }}>Total:</span>
+        <span style={{ fontSize: 22, fontWeight: 900, color: C.cyan, fontFamily: FONT }}>{fmtUSD(totalMes)}</span>
+        <div style={{ width: 2, height: 28, background: C.panelBorder, margin: "0 8px" }} />
+        <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT }}>Meta:</span>
+        <span style={{ fontSize: 18, fontWeight: 800, color: C.red, fontFamily: FONT }}>{fmtUSD(metaMes)}</span>
+        <div style={{ background: diffMes >= 0 ? `${C.green}20` : `${C.red}20`, border: `1px solid ${diffMes >= 0 ? C.green : C.red}40`, borderRadius: 8, padding: "4px 12px", marginLeft: 4 }}>
+          <span style={{ fontSize: 18, fontWeight: 900, color: diffMes >= 0 ? C.green : C.red, fontFamily: FONT }}>{diffMes >= 0 ? "+" : ""}{fmtUSD(diffMes)} {diffMes >= 0 ? "✓" : "✗"}</span>
         </div>
       </div>
       <Panel title="LOB Mensal vs Meta" icon="📈" style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" }}>
