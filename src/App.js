@@ -622,9 +622,9 @@ const SLIDE_NAMES = ["Visão Geral", "Ranking de Traders", "Linhas de Negócio",
 const SLIDE_INTERVAL = 20000;
 
 function SlideOverview({ d }) {
-  // Custom label for bars showing difference vs meta
+  // Custom label for bars showing total and difference vs meta
   const DiffLabel = (props) => {
-    const { x, y, width, value, index } = props;
+    const { x, y, width, index } = props;
     if (!d.monthlyLOB[index]) return null;
     const item = d.monthlyLOB[index];
     const total = item.embarcado + item.outros;
@@ -633,19 +633,19 @@ function SlideOverview({ d }) {
     if (total === 0) return null;
     return (
       <g>
-        <text x={x + width / 2} y={y - 22} textAnchor="middle" fill="#fff" fontSize={13} fontWeight={700} fontFamily={FONT}>{fmtUSD(total)}</text>
-        {meta > 0 && <text x={x + width / 2} y={y - 6} textAnchor="middle" fill={diff >= 0 ? C.green : C.red} fontSize={11} fontWeight={700} fontFamily={FONT}>{diff >= 0 ? "+" : ""}{fmtUSD(diff)}</text>}
+        <text x={x + width / 2} y={y - 38} textAnchor="middle" fill="#fff" fontSize={14} fontWeight={800} fontFamily={FONT}>{fmtUSD(total)}</text>
+        {meta > 0 && <text x={x + width / 2} y={y - 20} textAnchor="middle" fill={diff >= 0 ? C.green : C.red} fontSize={12} fontWeight={700} fontFamily={FONT}>{diff >= 0 ? "+" : ""}{fmtUSD(diff)}</text>}
       </g>
     );
   };
-  // Custom dot for meta line showing value
+  // Custom dot for meta line showing value below the dot
   const MetaDot = (props) => {
     const { cx, cy, value } = props;
     if (!value) return null;
     return (
       <g>
         <circle cx={cx} cy={cy} r={5} fill={C.red} />
-        <text x={cx} y={cy - 12} textAnchor="middle" fill={C.red} fontSize={11} fontWeight={700} fontFamily={FONT}>{fmtUSD(value)}</text>
+        <text x={cx} y={cy + 20} textAnchor="middle" fill={C.red} fontSize={11} fontWeight={700} fontFamily={FONT}>{fmtUSD(value)}</text>
       </g>
     );
   };
@@ -659,7 +659,7 @@ function SlideOverview({ d }) {
       </div>
       <Panel title="LOB Mensal vs Meta" icon="📈" style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" }}>
         <ResponsiveContainer width="100%" height={380}>
-          <ComposedChart data={d.monthlyLOB} margin={{ top: 40, right: 20, left: 10, bottom: 10 }}>
+          <ComposedChart data={d.monthlyLOB} margin={{ top: 55, right: 20, left: 10, bottom: 10 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={C.panelBorder} />
             <XAxis dataKey="month" tick={{ fontSize: 16, fill: "#fff", fontFamily: FONT, fontWeight: 600 }} tickLine={false} axisLine={{ stroke: C.panelBorder }} />
             <YAxis tick={{ fontSize: 12, fill: "#fff", fontFamily: FONT }} tickLine={false} axisLine={false} tickFormatter={fmtUSD} width={80} />
