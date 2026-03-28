@@ -814,10 +814,11 @@ function SlideMargens({ d }) {
       <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 20px", borderRadius: 10, background: `${color}08`, borderLeft: `4px solid ${color}` }}>
         <span style={{ fontSize: 28, fontWeight: 900, color, fontFamily: FONT, width: 40, textAlign: "center" }}>#{rank + 1}</span>
         <div style={{ flex: 1 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
             <span style={{ fontSize: 16, fontWeight: 700, color: "#fff", fontFamily: FONT }}>{item.processo}</span>
             <span style={{ fontSize: 22, fontWeight: 900, color, fontFamily: FONT }}>{item.margem.toFixed(1)}%</span>
           </div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: C.cyan, fontFamily: FONT, marginBottom: 4 }}>{item.produto || "—"}</div>
           <div style={{ fontSize: 12, color: C.muted, fontFamily: FONT }}>
             {item.trader} • {item.linha} • {item.cliente ? item.cliente.substring(0, 40) : ""} • LOB: {fmtUSD(item.lob)}
           </div>
@@ -1057,13 +1058,13 @@ export default function App() {
           {config.showChart && (
             <Panel title="LOB Mensal vs Meta" icon="📈" style={{ flex: 1 }}>
               <ResponsiveContainer width="100%" height={260}>
-                <ComposedChart data={d.monthlyLOB} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
+                <ComposedChart data={d.monthlyLOB} margin={{ top: 30, right: 10, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke={C.panelBorder} />
                   <XAxis dataKey="month" tick={{ fontSize: 12, fill: "#fff", fontFamily: FONT }} tickLine={false} axisLine={{ stroke: C.panelBorder }} />
                   <YAxis tick={{ fontSize: 11, fill: "#fff", fontFamily: FONT }} tickLine={false} axisLine={false} tickFormatter={fmtUSD} width={75} />
                   <Tooltip content={<CustomTooltip />} />
                   <Bar dataKey="embarcado" name="Embarcado" stackId="lob" fill="#ffffff" maxBarSize={32} />
-                  <Bar dataKey="outros" name="Outros Status" stackId="lob" fill="#4a5568" radius={[3, 3, 0, 0]} maxBarSize={32} />
+                  <Bar dataKey="outros" name="Outros Status" stackId="lob" fill="#4a5568" radius={[3, 3, 0, 0]} maxBarSize={32} label={{ position: "top", fill: "#fff", fontSize: 10, fontWeight: 700, fontFamily: FONT, formatter: (v, name, props) => { const idx = props?.index; const item = d.monthlyLOB[idx]; if (!item) return ""; const total = item.embarcado + item.outros; return total > 0 ? fmtUSD(total) : ""; }}} />
                   <Line type="monotone" dataKey="meta" name="Meta" stroke={C.red} strokeWidth={2} dot={{ fill: C.red, r: 4 }} />
                 </ComposedChart>
               </ResponsiveContainer>
