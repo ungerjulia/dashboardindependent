@@ -858,28 +858,29 @@ function SlideProdutos({ d }) {
         {linhas.map(([linha, produtos]) => {
           const entries = Object.entries(produtos).sort((a, b) => b[1].lob - a[1].lob);
           const totalLob = entries.reduce((s, [, v]) => s + v.lob, 0);
-          const pieData = entries.map(([name, v]) => ({ name: name.length > 20 ? name.substring(0, 20) + "..." : name, fullName: name, value: v.lob, count: v.count, pct: totalLob > 0 ? ((v.lob / totalLob) * 100).toFixed(1) : 0 }));
+          const pieData = entries.map(([name, v]) => ({ name: name.length > 25 ? name.substring(0, 25) + "..." : name, fullName: name, value: Math.max(v.lob, 0.01), count: v.count, pct: totalLob > 0 ? ((v.lob / totalLob) * 100).toFixed(1) : 0 }));
           const color = linhaColors[linha] || C.amber;
+          const isSingle = pieData.length === 1;
 
           return (
-            <div key={linha} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-              <div style={{ fontSize: 18, fontWeight: 800, color, fontFamily: FONT }}>{linha}</div>
-              <div style={{ fontSize: 14, color: "#fff", fontWeight: 700 }}>{fmtUSD(totalLob)}</div>
-              <ResponsiveContainer width="100%" height={240}>
+            <div key={linha} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, maxWidth: linhas.length > 2 ? "33%" : "50%" }}>
+              <div style={{ fontSize: 20, fontWeight: 800, color, fontFamily: FONT }}>{linha}</div>
+              <div style={{ fontSize: 16, color: "#fff", fontWeight: 700, fontFamily: FONT }}>{fmtUSD(totalLob)}</div>
+              <ResponsiveContainer width="100%" height={isSingle ? 180 : 240}>
                 <PieChart>
-                  <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90} innerRadius={40} paddingAngle={2} label={({ name, pct }) => `${pct}%`} labelLine={{ stroke: C.muted, strokeWidth: 1 }}>
+                  <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={isSingle ? 70 : 90} innerRadius={isSingle ? 30 : 40} paddingAngle={isSingle ? 0 : 2} startAngle={90} endAngle={-270} label={isSingle ? false : ({ pct }) => `${pct}%`} labelLine={isSingle ? false : { stroke: C.muted, strokeWidth: 1 }}>
                     {pieData.map((_, idx) => <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />)}
                   </Pie>
                   <Tooltip formatter={(v) => fmtUSD(v)} contentStyle={{ background: "#1a2332ee", border: `1px solid ${C.panelBorder}`, borderRadius: 6, fontFamily: FONT }} itemStyle={{ color: "#fff" }} labelStyle={{ color: C.muted }} />
                 </PieChart>
               </ResponsiveContainer>
-              <div style={{ display: "flex", flexDirection: "column", gap: 3, maxHeight: 120, overflow: "auto", width: "100%" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 140, overflow: "auto", width: "100%" }}>
                 {pieData.map((p, idx) => (
                   <div key={p.fullName} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#fff", fontFamily: FONT }}>
-                    <span style={{ width: 8, height: 8, borderRadius: 2, background: PIE_COLORS[idx % PIE_COLORS.length], flexShrink: 0, display: "inline-block" }} />
+                    <span style={{ width: 10, height: 10, borderRadius: 2, background: PIE_COLORS[idx % PIE_COLORS.length], flexShrink: 0, display: "inline-block" }} />
                     <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.fullName}</span>
                     <span style={{ fontWeight: 700, flexShrink: 0 }}>{p.pct}%</span>
-                    <span style={{ color: C.muted, flexShrink: 0 }}>({p.count})</span>
+                    <span style={{ color: C.muted, flexShrink: 0 }}>({p.count} proc.)</span>
                   </div>
                 ))}
               </div>
