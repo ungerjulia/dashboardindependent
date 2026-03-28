@@ -1043,13 +1043,38 @@ export default function App() {
           <Clock />
         </div>
       </div>
-      {/* KPIs */}
+      {/* KPIs with mini gauges */}
       {config.showKPIs && (
         <div style={{ display: "flex", gap: 12, padding: "14px 20px" }}>
-          <KPICard label={`LOB ${d.currentMonthName}`} value={fmtUSD(d.lobMesAtual)} meta={fmtUSD(d.metaMesAtual)} icon="💰" color={C.green} />
-          <KPICard label="LOB Trimestral" value={fmtUSD(d.lobTrimestral)} meta={fmtUSD(d.metaTrimestral)} icon="📊" color={C.cyan} />
-          <KPICard label="LOB Anual" value={fmtUSD(d.lobAnoTotal)} meta={fmtUSD(d.metaAnoTotal)} icon="🏆" color={C.amber} />
-          <KPICard label="Processos do Mês" value={`${d.totalOps}`} meta={`Ano: ${d.totalOpsAno} processos`} icon="📋" color={C.blue} />
+          {[
+            { label: `LOB ${d.currentMonthName}`, value: d.lobMesAtual, meta: d.metaMesAtual, color: C.green, icon: "💰" },
+            { label: "LOB Trimestral", value: d.lobTrimestral, meta: d.metaTrimestral, color: C.cyan, icon: "📊" },
+            { label: "LOB Anual", value: d.lobAnoTotal, meta: d.metaAnoTotal, color: C.amber, icon: "🏆" },
+          ].map((kpi, idx) => {
+            const pct = kpi.meta > 0 ? (kpi.value / kpi.meta * 100) : 0;
+            const arcPct = Math.min(pct, 100);
+            return (
+              <div key={idx} style={{ background: `linear-gradient(135deg, ${C.panel}, ${kpi.color}08)`, border: `1px solid ${C.panelBorder}`, borderRadius: 8, padding: "12px 16px", flex: 1, display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ position: "relative", width: 56, height: 40, flexShrink: 0 }}>
+                  <svg viewBox="0 0 120 75" style={{ width: "100%", height: "100%" }}>
+                    <path d="M 10 65 A 50 50 0 0 1 110 65" fill="none" stroke={C.panelBorder} strokeWidth="8" strokeLinecap="round" />
+                    <path d="M 10 65 A 50 50 0 0 1 110 65" fill="none" stroke={pct >= 100 ? C.green : kpi.color} strokeWidth="8" strokeLinecap="round" strokeDasharray={`${(arcPct / 100) * 157} 157`} />
+                  </svg>
+                  <div style={{ position: "absolute", top: "38%", left: "50%", transform: "translate(-50%, -10%)", fontSize: 9, fontWeight: 800, color: pct >= 100 ? C.green : "#fff", fontFamily: FONT }}>{pct.toFixed(0)}%</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, color: "#fff", textTransform: "uppercase", fontFamily: FONT, marginBottom: 2 }}>{kpi.label}</div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: "#fff", fontFamily: FONT }}>{fmtUSD(kpi.value)}</div>
+                  <div style={{ fontSize: 11, color: C.green, fontWeight: 700, fontFamily: FONT }}>Meta: {fmtUSD(kpi.meta)}</div>
+                </div>
+              </div>
+            );
+          })}
+          <div style={{ background: `linear-gradient(135deg, ${C.panel}, ${C.blue}08)`, border: `1px solid ${C.panelBorder}`, borderRadius: 8, padding: "12px 16px", flex: 1 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, color: "#fff", textTransform: "uppercase", fontFamily: FONT, marginBottom: 4 }}>Processos do Mês</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: "#fff", fontFamily: FONT }}>{d.totalOps}</div>
+            <div style={{ fontSize: 11, color: C.green, fontWeight: 700, fontFamily: FONT }}>Ano: {d.totalOpsAno} processos</div>
+          </div>
         </div>
       )}
       {/* Main Grid */}
@@ -1058,13 +1083,13 @@ export default function App() {
           {config.showChart && (
             <Panel title="LOB Mensal vs Meta" icon="📈" style={{ flex: 1 }}>
               <ResponsiveContainer width="100%" height={260}>
-                <ComposedChart data={d.monthlyLOB} margin={{ top: 30, right: 10, left: 0, bottom: 0 }}>
+                <ComposedChart data={d.monthlyLOB} margin={{ top: 35, right: 10, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke={C.panelBorder} />
                   <XAxis dataKey="month" tick={{ fontSize: 12, fill: "#fff", fontFamily: FONT }} tickLine={false} axisLine={{ stroke: C.panelBorder }} />
                   <YAxis tick={{ fontSize: 11, fill: "#fff", fontFamily: FONT }} tickLine={false} axisLine={false} tickFormatter={fmtUSD} width={75} />
                   <Tooltip content={<CustomTooltip />} />
                   <Bar dataKey="embarcado" name="Embarcado" stackId="lob" fill="#ffffff" maxBarSize={32} />
-                  <Bar dataKey="outros" name="Outros Status" stackId="lob" fill="#4a5568" radius={[3, 3, 0, 0]} maxBarSize={32} label={{ position: "top", fill: "#fff", fontSize: 10, fontWeight: 700, fontFamily: FONT, formatter: (v, name, props) => { const idx = props?.index; const item = d.monthlyLOB[idx]; if (!item) return ""; const total = item.embarcado + item.outros; return total > 0 ? fmtUSD(total) : ""; }}} />
+                  <Bar dataKey="outros" name="Outros Status" stackId="lob" fill="#4a5568" radius={[3, 3, 0, 0]} maxBarSize={32} label={(props) => { const { x, y, width, index } = props; const item = d.monthlyLOB[index]; if (!item) return null; const total = item.embarcado + item.outros; if (total <= 0) return null; return <text x={x + width / 2} y={y - 8} textAnchor="middle" fill="#fff" fontSize={10} fontWeight={700} fontFamily={FONT}>{fmtUSD(total)}</text>; }} />
                   <Line type="monotone" dataKey="meta" name="Meta" stroke={C.red} strokeWidth={2} dot={{ fill: C.red, r: 4 }} />
                 </ComposedChart>
               </ResponsiveContainer>
@@ -1075,24 +1100,13 @@ export default function App() {
               </div>
             </Panel>
           )}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            {config.showGauges && (
-              <Panel title="Atingimento de Meta Global" icon="🎯">
-                <div style={{ display: "flex", gap: 4, justifyContent: "space-around", paddingTop: 4 }}>
-                  <GaugeChart value={d.lobMesAtual} max={d.metaMesAtual} period="Mensal" color={C.green} />
-                  <GaugeChart value={d.lobTrimestral} max={d.metaTrimestral} period="Trimestral" color={C.cyan} />
-                  <GaugeChart value={d.lobAnoTotal} max={d.metaAnoTotal} period="Anual" color={C.amber} />
-                </div>
-              </Panel>
-            )}
-            {config.showLinhas && (
-              <Panel title={`Linhas de Negócio — ${config.viewMode === "ano" ? "Anual" : d.currentMonthName}`} icon="🏷️">
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {d.linhaRanking.map(l => <LinhaRow key={l.name} l={l} viewMode={config.viewMode} />)}
-                </div>
-              </Panel>
-            )}
-          </div>
+          {config.showLinhas && (
+            <Panel title={`Linhas de Negócio — ${config.viewMode === "ano" ? "Anual" : d.currentMonthName}`} icon="🏷️">
+              <div style={{ display: "flex", gap: 12 }}>
+                {d.linhaRanking.map(l => <div key={l.name} style={{ flex: 1 }}><LinhaRow l={l} viewMode={config.viewMode} /></div>)}
+              </div>
+            </Panel>
+          )}
           {config.showStatus && Object.keys(d.statusData).length > 0 && (
             <Panel title={`Status dos Processos — ${d.currentMonthName}`} icon="📦">
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
