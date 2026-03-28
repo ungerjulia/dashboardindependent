@@ -832,7 +832,7 @@ function SlideProdutos({ d }) {
               </ResponsiveContainer>
               <div style={{ display: "flex", flexDirection: "column", gap: 3, maxHeight: 120, overflow: "auto", width: "100%" }}>
                 {pieData.map((p, idx) => (
-                  <div key={p.fullName} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "#fff", fontFamily: FONT }}>
+                  <div key={p.fullName} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#fff", fontFamily: FONT }}>
                     <span style={{ width: 8, height: 8, borderRadius: 2, background: PIE_COLORS[idx % PIE_COLORS.length], flexShrink: 0, display: "inline-block" }} />
                     <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.fullName}</span>
                     <span style={{ fontWeight: 700, flexShrink: 0 }}>{p.pct}%</span>
@@ -857,8 +857,15 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
+  const [tvMode, setTvMode] = useState(false);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [paused, setPaused] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [config, setConfig] = useState({
+    showKPIs: true, showChart: true, showGauges: true,
+    showTraders: true, showLinhas: true, showStatus: true,
+    viewMode: "mes",
+  });
 
   const loadData = useCallback(async () => {
     try {
@@ -889,14 +896,13 @@ export default function App() {
     return () => clearInterval(iv);
   }, [loggedIn, loadData]);
 
-  // Carousel auto-advance
   useEffect(() => {
-    if (paused || !data) return;
+    if (!tvMode || paused || !data) return;
     const iv = setInterval(() => {
       setCurrentSlide(prev => (prev + 1) % SLIDE_NAMES.length);
     }, SLIDE_INTERVAL);
     return () => clearInterval(iv);
-  }, [paused, data]);
+  }, [tvMode, paused, data]);
 
   const goNext = () => setCurrentSlide(prev => (prev + 1) % SLIDE_NAMES.length);
   const goPrev = () => setCurrentSlide(prev => (prev - 1 + SLIDE_NAMES.length) % SLIDE_NAMES.length);
@@ -924,76 +930,154 @@ export default function App() {
 
   if (!data) return null;
   const d = data;
+  const maxTraderLob = d.traderRanking.length > 0 ? Math.max(...d.traderRanking.map(t => config.viewMode === "ano" ? t.lobAno : t.lobMes)) : 1;
 
-  const slides = [
-    <SlideOverview d={d} />,
-    <SlideTraders d={d} />,
-    <SlideLinhas d={d} />,
-    <SlideStatus d={d} />,
-    <SlideGauges d={d} />,
-    <SlideMargens d={d} />,
-    <SlideProdutos d={d} />,
-  ];
+  // ── TV MODE ──
+  if (tvMode) {
+    const slides = [<SlideOverview d={d} />, <SlideTraders d={d} />, <SlideLinhas d={d} />, <SlideStatus d={d} />, <SlideGauges d={d} />, <SlideMargens d={d} />, <SlideProdutos d={d} />];
+    return (
+      <div style={{ background: C.bg, minHeight: "100vh", color: C.white, fontFamily: FONT, display: "flex", flexDirection: "column" }}>
+        <style>{`@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.8)}}@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}*{box-sizing:border-box;margin:0;padding:0}`}</style>
+        <div style={{ padding: "10px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${C.panelBorder}`, background: `linear-gradient(180deg, #0d1220, ${C.bg})` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <div style={{ width: 40, height: 40, borderRadius: 6, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", padding: 2 }}>
+              <svg viewBox="0 0 100 100" width="34" height="34" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="2" width="96" height="96" fill="white" stroke="#111" strokeWidth="8"/><text x="50" y="68" textAnchor="middle" fontFamily={FONT} fontSize="52" fontWeight="900" fill="#111">IB</text></svg>
+            </div>
+            <div>
+              <div style={{ fontSize: 18, fontWeight: 900, fontFamily: FONT, color: "#fff" }}>INDEPENDENT BRAZIL</div>
+              <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, letterSpacing: 1.5, textTransform: "uppercase", fontFamily: FONT }}>Trading Desk • {d.currentMonthName} {new Date().getFullYear()}</div>
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ display: "flex", gap: 5 }}>{SLIDE_NAMES.map((name, i) => (<div key={i} onClick={() => setCurrentSlide(i)} title={name} style={{ width: i === currentSlide ? 22 : 8, height: 8, borderRadius: 4, background: i === currentSlide ? C.cyan : C.panelBorder, cursor: "pointer", transition: "all 0.3s" }} />))}</div>
+            <button onClick={goPrev} style={{ background: "none", border: `1px solid ${C.panelBorder}`, borderRadius: 6, padding: "4px 10px", color: "#fff", cursor: "pointer", fontSize: 14 }}>◀</button>
+            <button onClick={() => setPaused(!paused)} style={{ background: paused ? C.green : "none", border: `1px solid ${paused ? C.green : C.panelBorder}`, borderRadius: 6, padding: "4px 10px", color: "#fff", cursor: "pointer", fontSize: 14, minWidth: 32 }}>{paused ? "▶" : "⏸"}</button>
+            <button onClick={goNext} style={{ background: "none", border: `1px solid ${C.panelBorder}`, borderRadius: 6, padding: "4px 10px", color: "#fff", cursor: "pointer", fontSize: 14 }}>▶</button>
+            <button onClick={() => { setTvMode(false); setPaused(false); }} style={{ background: `linear-gradient(135deg, ${C.red}cc, ${C.red})`, border: "none", borderRadius: 6, padding: "6px 14px", color: "#fff", cursor: "pointer", fontSize: 12, fontFamily: FONT, fontWeight: 700 }}>✕ Sair do Modo TV</button>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 4 }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.green, animation: "pulse 2s ease-in-out infinite", boxShadow: `0 0 8px ${C.green}80` }} />
+              <span style={{ fontSize: 11, fontWeight: 700, color: C.green, fontFamily: FONT }}>LIVE</span>
+            </div>
+            <Clock />
+          </div>
+        </div>
+        {!paused && (<div style={{ height: 3, background: C.panelBorder }}><div key={currentSlide} style={{ height: "100%", background: C.cyan, animation: `progress ${SLIDE_INTERVAL}ms linear`, width: "100%" }} /><style>{`@keyframes progress{from{width:0}to{width:100%}}`}</style></div>)}
+        <div key={currentSlide} style={{ flex: 1, display: "flex", flexDirection: "column", padding: "16px 0", animation: "fadeIn 0.5s ease" }}>{slides[currentSlide]}</div>
+        <div style={{ padding: "6px 24px", borderTop: `1px solid ${C.panelBorder}`, display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10, color: C.dimText, fontFamily: FONT }}>
+          <span>🔗 Google Sheets • Atualização a cada 1 min</span>
+          <span style={{ fontSize: 12, color: C.muted, fontWeight: 600 }}>📺 {SLIDE_NAMES[currentSlide]} ({currentSlide + 1}/{SLIDE_NAMES.length})</span>
+          <span>Último update: {lastUpdate ? lastUpdate.toLocaleTimeString("pt-BR") : "—"} • INDEPENDENT BRAZIL v4.0</span>
+        </div>
+      </div>
+    );
+  }
 
+  // ── DASHBOARD MODE (Home) ──
   return (
     <div style={{ background: C.bg, minHeight: "100vh", color: C.white, fontFamily: FONT, display: "flex", flexDirection: "column" }}>
-      <style>{`
-        @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.8)}}
-        @keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
-        *{box-sizing:border-box;margin:0;padding:0}
-      `}</style>
-
+      <style>{`@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.8)}}*{box-sizing:border-box;margin:0;padding:0}::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:${C.bg}}::-webkit-scrollbar-thumb{background:${C.panelBorder};border-radius:4px}`}</style>
+      {settingsOpen && <SettingsPanel config={config} setConfig={setConfig} onClose={() => setSettingsOpen(false)} />}
       {/* Header */}
-      <div style={{ padding: "10px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${C.panelBorder}`, background: `linear-gradient(180deg, #0d1220, ${C.bg})` }}>
+      <div style={{ padding: "12px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${C.panelBorder}`, background: `linear-gradient(180deg, #0d1220, ${C.bg})` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <div style={{ width: 40, height: 40, borderRadius: 6, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, padding: 2 }}>
-            <svg viewBox="0 0 100 100" width="34" height="34" xmlns="http://www.w3.org/2000/svg">
-              <rect x="2" y="2" width="96" height="96" fill="white" stroke="#111" strokeWidth="8"/>
-              <text x="50" y="68" textAnchor="middle" fontFamily={FONT} fontSize="52" fontWeight="900" fill="#111">IB</text>
-            </svg>
+          <div style={{ width: 44, height: 44, borderRadius: 6, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", padding: 3 }}>
+            <svg viewBox="0 0 100 100" width="38" height="38" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="2" width="96" height="96" fill="white" stroke="#111" strokeWidth="8"/><text x="50" y="68" textAnchor="middle" fontFamily={FONT} fontSize="52" fontWeight="900" fill="#111">IB</text></svg>
           </div>
           <div>
-            <div style={{ fontSize: 18, fontWeight: 900, letterSpacing: 0.5, fontFamily: FONT, color: "#fff" }}>INDEPENDENT BRAZIL</div>
+            <div style={{ fontSize: 20, fontWeight: 900, fontFamily: FONT, color: "#fff" }}>INDEPENDENT BRAZIL</div>
             <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, letterSpacing: 1.5, textTransform: "uppercase", fontFamily: FONT }}>Trading Desk • {d.currentMonthName} {new Date().getFullYear()}</div>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          {/* Slide indicators */}
-          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            {SLIDE_NAMES.map((name, i) => (
-              <div key={i} onClick={() => setCurrentSlide(i)} title={name} style={{ width: i === currentSlide ? 24 : 8, height: 8, borderRadius: 4, background: i === currentSlide ? C.cyan : C.panelBorder, cursor: "pointer", transition: "all 0.3s" }} />
-            ))}
-          </div>
-          {/* Controls */}
-          <button onClick={goPrev} style={{ background: "none", border: `1px solid ${C.panelBorder}`, borderRadius: 6, padding: "4px 10px", color: "#fff", cursor: "pointer", fontSize: 14 }}>◀</button>
-          <button onClick={() => setPaused(!paused)} style={{ background: paused ? C.green : "none", border: `1px solid ${paused ? C.green : C.panelBorder}`, borderRadius: 6, padding: "4px 10px", color: "#fff", cursor: "pointer", fontSize: 14, minWidth: 32 }}>{paused ? "▶" : "⏸"}</button>
-          <button onClick={goNext} style={{ background: "none", border: `1px solid ${C.panelBorder}`, borderRadius: 6, padding: "4px 10px", color: "#fff", cursor: "pointer", fontSize: 14 }}>▶</button>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 8 }}>
+          <button onClick={() => { setTvMode(true); setCurrentSlide(0); setPaused(false); }} style={{ background: `linear-gradient(135deg, ${C.blue}, ${C.cyan})`, border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, color: "#fff", fontFamily: FONT, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>📺 Modo TV</button>
+          <button onClick={() => setSettingsOpen(true)} style={{ background: C.panelBorder, border: "none", borderRadius: 8, padding: "8px 12px", cursor: "pointer", fontSize: 16, color: C.muted }} title="Configurações">⚙️</button>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.green, animation: "pulse 2s ease-in-out infinite", boxShadow: `0 0 8px ${C.green}80` }} />
             <span style={{ fontSize: 11, fontWeight: 700, color: C.green, fontFamily: FONT }}>LIVE</span>
           </div>
           <Clock />
         </div>
       </div>
-
-      {/* Progress bar */}
-      {!paused && (
-        <div style={{ height: 3, background: C.panelBorder }}>
-          <div style={{ height: "100%", background: C.cyan, animation: `progress ${SLIDE_INTERVAL}ms linear`, width: "100%" }} />
-          <style>{`@keyframes progress{from{width:0}to{width:100%}}`}</style>
+      {/* KPIs */}
+      {config.showKPIs && (
+        <div style={{ display: "flex", gap: 12, padding: "14px 20px" }}>
+          <KPICard label={`LOB ${d.currentMonthName}`} value={fmtUSD(d.lobMesAtual)} meta={fmtUSD(d.metaMesAtual)} icon="💰" color={C.green} />
+          <KPICard label="LOB Trimestral" value={fmtUSD(d.lobTrimestral)} meta={fmtUSD(d.metaTrimestral)} icon="📊" color={C.cyan} />
+          <KPICard label="LOB Anual" value={fmtUSD(d.lobAnoTotal)} meta={fmtUSD(d.metaAnoTotal)} icon="🏆" color={C.amber} />
+          <KPICard label="Processos do Mês" value={`${d.totalOps}`} meta={`Ano: ${d.totalOpsAno} processos`} icon="📋" color={C.blue} />
         </div>
       )}
-
-      {/* Slide Content */}
-      <div key={currentSlide} style={{ flex: 1, display: "flex", flexDirection: "column", padding: "16px 0", animation: "fadeIn 0.5s ease" }}>
-        {slides[currentSlide]}
+      {/* Main Grid */}
+      <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 360px", gap: 12, padding: "0 20px 16px" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {config.showChart && (
+            <Panel title="LOB Mensal vs Meta" icon="📈" style={{ flex: 1 }}>
+              <ResponsiveContainer width="100%" height={260}>
+                <ComposedChart data={d.monthlyLOB} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={C.panelBorder} />
+                  <XAxis dataKey="month" tick={{ fontSize: 12, fill: "#fff", fontFamily: FONT }} tickLine={false} axisLine={{ stroke: C.panelBorder }} />
+                  <YAxis tick={{ fontSize: 11, fill: "#fff", fontFamily: FONT }} tickLine={false} axisLine={false} tickFormatter={fmtUSD} width={75} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Bar dataKey="embarcado" name="Embarcado" stackId="lob" fill="#ffffff" maxBarSize={32} />
+                  <Bar dataKey="outros" name="Outros Status" stackId="lob" fill="#4a5568" radius={[3, 3, 0, 0]} maxBarSize={32} />
+                  <Line type="monotone" dataKey="meta" name="Meta" stroke={C.red} strokeWidth={2} dot={{ fill: C.red, r: 4 }} />
+                </ComposedChart>
+              </ResponsiveContainer>
+              <div style={{ display: "flex", gap: 18, justifyContent: "center", marginTop: 4 }}>
+                <span style={{ fontSize: 11, color: "#fff", display: "flex", alignItems: "center", gap: 5, fontFamily: FONT }}><span style={{ width: 12, height: 3, background: "#fff", borderRadius: 2, display: "inline-block" }} /> Embarcado</span>
+                <span style={{ fontSize: 11, color: "#fff", display: "flex", alignItems: "center", gap: 5, fontFamily: FONT }}><span style={{ width: 12, height: 3, background: "#4a5568", borderRadius: 2, display: "inline-block" }} /> Outros</span>
+                <span style={{ fontSize: 11, color: "#fff", display: "flex", alignItems: "center", gap: 5, fontFamily: FONT }}><span style={{ width: 12, height: 3, background: C.red, borderRadius: 2, display: "inline-block" }} /> Meta</span>
+              </div>
+            </Panel>
+          )}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            {config.showGauges && (
+              <Panel title="Atingimento de Meta Global" icon="🎯">
+                <div style={{ display: "flex", gap: 4, justifyContent: "space-around", paddingTop: 4 }}>
+                  <GaugeChart value={d.lobMesAtual} max={d.metaMesAtual} period="Mensal" color={C.green} />
+                  <GaugeChart value={d.lobTrimestral} max={d.metaTrimestral} period="Trimestral" color={C.cyan} />
+                  <GaugeChart value={d.lobAnoTotal} max={d.metaAnoTotal} period="Anual" color={C.amber} />
+                </div>
+              </Panel>
+            )}
+            {config.showLinhas && (
+              <Panel title={`Linhas de Negócio — ${config.viewMode === "ano" ? "Anual" : d.currentMonthName}`} icon="🏷️">
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {d.linhaRanking.map(l => <LinhaRow key={l.name} l={l} viewMode={config.viewMode} />)}
+                </div>
+              </Panel>
+            )}
+          </div>
+          {config.showStatus && Object.keys(d.statusData).length > 0 && (
+            <Panel title={`Status dos Processos — ${d.currentMonthName}`} icon="📦">
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                {Object.entries(d.statusData).sort((a, b) => b[1].lob - a[1].lob).map(([status, sdata]) => (
+                  <div key={status} style={{ background: `${C.blue}15`, border: `1px solid ${C.blue}30`, borderRadius: 8, padding: "12px 16px", minWidth: 130, flex: 1 }}>
+                    <div style={{ fontSize: 12, color: "#fff", fontWeight: 700, fontFamily: FONT, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{status}</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: "#fff", fontFamily: FONT }}>{fmtUSD(sdata.lob)}</div>
+                    <div style={{ fontSize: 11, color: C.cyan, fontWeight: 600, fontFamily: FONT }}>{sdata.count} {sdata.count === 1 ? "processo" : "processos"}</div>
+                  </div>
+                ))}
+              </div>
+            </Panel>
+          )}
+        </div>
+        {config.showTraders && (
+          <Panel title={`Ranking de Traders — ${config.viewMode === "ano" ? "Anual" : d.currentMonthName}`} icon="🏆" style={{ overflow: "hidden" }}>
+            <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
+              {d.traderRanking.map((t, i) => <TraderRow key={t.name} rank={i} t={t} maxLob={maxTraderLob} viewMode={config.viewMode} />)}
+            </div>
+            <div style={{ borderTop: `1px solid ${C.panelBorder}`, paddingTop: 10, marginTop: 4, display: "flex", justifyContent: "space-between", fontSize: 11, color: C.muted, fontFamily: FONT }}>
+              <span>Total: <span style={{ color: C.white, fontWeight: 700 }}>{fmtUSD(d.traderRanking.reduce((s, t) => s + (config.viewMode === "ano" ? t.lobAno : t.lobMes), 0))}</span></span>
+              <span>Processos: <span style={{ color: C.white, fontWeight: 700 }}>{d.traderRanking.reduce((s, t) => s + (config.viewMode === "ano" ? t.ops : t.opsMes), 0)}</span></span>
+            </div>
+          </Panel>
+        )}
       </div>
-
-      {/* Footer */}
-      <div style={{ padding: "6px 24px", borderTop: `1px solid ${C.panelBorder}`, display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10, color: C.dimText, fontFamily: FONT }}>
+      <div style={{ padding: "8px 24px", borderTop: `1px solid ${C.panelBorder}`, display: "flex", justifyContent: "space-between", fontSize: 10, color: C.dimText, fontFamily: FONT }}>
         <span>🔗 Google Sheets • Atualização a cada 1 min</span>
-        <span style={{ fontSize: 12, color: C.muted, fontWeight: 600 }}>{SLIDE_NAMES[currentSlide]} ({currentSlide + 1}/{SLIDE_NAMES.length})</span>
-        <span>Último update: {lastUpdate ? lastUpdate.toLocaleTimeString("pt-BR") : "—"} • INDEPENDENT BRAZIL v3.0</span>
+        <span>Último update: {lastUpdate ? lastUpdate.toLocaleTimeString("pt-BR") : "—"}</span>
+        <span>INDEPENDENT BRAZIL • Trading Desk v4.0 • {new Date().getFullYear()}</span>
       </div>
     </div>
   );
