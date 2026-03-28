@@ -203,16 +203,32 @@ function processData(lob, metasTrader, metaLinha, metaGlobal) {
     return { metaMes: 0, metaAno: 0 };
   };
 
-  const traderRanking = Object.values(traderMap).map(t => {
-    const meta = findTraderMeta(t.name);
-    return {
-      ...t,
-      metaMes: meta.metaMes,
-      metaAno: meta.metaAno,
-      pctMes: meta.metaMes ? (t.lobMes / meta.metaMes * 100) : 0,
-      pctAno: meta.metaAno ? (t.lobAno / meta.metaAno * 100) : 0,
-    };
-  }).sort((a, b) => b.lobMes - a.lobMes);
+  // Get known trader names from metas sheet
+  const knownTraderNames = new Set(Object.keys(traderMetas).map(n => n.toLowerCase().trim()));
+
+  const traderRanking = Object.values(traderMap)
+    .filter(t => {
+      // Exclude entries that are linha de negocio names, not traders
+      const tn = t.name.toLowerCase().trim();
+      // If we have known traders, only include those; otherwise include all
+      if (knownTraderNames.size > 0) {
+        return knownTraderNames.has(tn) || Object.keys(traderMetas).some(k => 
+          k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim() === 
+          tn.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim()
+        );
+      }
+      return true;
+    })
+    .map(t => {
+      const meta = findTraderMeta(t.name);
+      return {
+        ...t,
+        metaMes: meta.metaMes,
+        metaAno: meta.metaAno,
+        pctMes: meta.metaMes ? (t.lobMes / meta.metaMes * 100) : 0,
+        pctAno: meta.metaAno ? (t.lobAno / meta.metaAno * 100) : 0,
+      };
+    }).sort((a, b) => b.lobMes - a.lobMes);
 
   // LOB by Linha de Negócio
   const linhaMap = {};
@@ -606,30 +622,57 @@ const SLIDE_NAMES = ["Visão Geral", "Ranking de Traders", "Linhas de Negócio",
 const SLIDE_INTERVAL = 20000;
 
 function SlideOverview({ d }) {
+  // Custom label for bars showing difference vs meta
+  const DiffLabel = (props) => {
+    const { x, y, width, value, index } = props;
+    if (!d.monthlyLOB[index]) return null;
+    const item = d.monthlyLOB[index];
+    const total = item.embarcado + item.outros;
+    const meta = item.meta || 0;
+    const diff = total - meta;
+    if (total === 0) return null;
+    return (
+      <g>
+        <text x={x + width / 2} y={y - 22} textAnchor="middle" fill="#fff" fontSize={13} fontWeight={700} fontFamily={FONT}>{fmtUSD(total)}</text>
+        {meta > 0 && <text x={x + width / 2} y={y - 6} textAnchor="middle" fill={diff >= 0 ? C.green : C.red} fontSize={11} fontWeight={700} fontFamily={FONT}>{diff >= 0 ? "+" : ""}{fmtUSD(diff)}</text>}
+      </g>
+    );
+  };
+  // Custom dot for meta line showing value
+  const MetaDot = (props) => {
+    const { cx, cy, value } = props;
+    if (!value) return null;
+    return (
+      <g>
+        <circle cx={cx} cy={cy} r={5} fill={C.red} />
+        <text x={cx} y={cy - 12} textAnchor="middle" fill={C.red} fontSize={11} fontWeight={700} fontFamily={FONT}>{fmtUSD(value)}</text>
+      </g>
+    );
+  };
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16, flex: 1, padding: "0 20px" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1, padding: "0 20px" }}>
       <div style={{ display: "flex", gap: 12 }}>
         <KPICard label={`LOB ${d.currentMonthName}`} value={fmtUSD(d.lobMesAtual)} meta={fmtUSD(d.metaMesAtual)} icon="💰" color={C.green} />
         <KPICard label="LOB Trimestral" value={fmtUSD(d.lobTrimestral)} meta={fmtUSD(d.metaTrimestral)} icon="📊" color={C.cyan} />
         <KPICard label="LOB Anual" value={fmtUSD(d.lobAnoTotal)} meta={fmtUSD(d.metaAnoTotal)} icon="🏆" color={C.amber} />
         <KPICard label="Processos do Mês" value={`${d.totalOps}`} meta={`Ano: ${d.totalOpsAno} processos`} icon="📋" color={C.blue} />
       </div>
-      <Panel title="LOB Mensal vs Meta" icon="📈" style={{ flex: 1 }}>
-        <ResponsiveContainer width="100%" height={280}>
-          <ComposedChart data={d.monthlyLOB} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
+      <Panel title="LOB Mensal vs Meta" icon="📈" style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+        <ResponsiveContainer width="100%" height={380}>
+          <ComposedChart data={d.monthlyLOB} margin={{ top: 40, right: 20, left: 10, bottom: 10 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={C.panelBorder} />
-            <XAxis dataKey="month" tick={{ fontSize: 14, fill: "#fff", fontFamily: FONT }} tickLine={false} axisLine={{ stroke: C.panelBorder }} />
+            <XAxis dataKey="month" tick={{ fontSize: 16, fill: "#fff", fontFamily: FONT, fontWeight: 600 }} tickLine={false} axisLine={{ stroke: C.panelBorder }} />
             <YAxis tick={{ fontSize: 12, fill: "#fff", fontFamily: FONT }} tickLine={false} axisLine={false} tickFormatter={fmtUSD} width={80} />
             <Tooltip content={<CustomTooltip />} />
-            <Bar dataKey="embarcado" name="Embarcado" stackId="lob" fill="#ffffff" radius={[0, 0, 0, 0]} maxBarSize={36} />
-            <Bar dataKey="outros" name="Outros Status" stackId="lob" fill="#4a5568" radius={[3, 3, 0, 0]} maxBarSize={36} label={{ position: "top", fill: "#fff", fontSize: 12, fontWeight: 700, fontFamily: FONT, formatter: (v, entry) => { const total = (entry?.embarcado || 0) + (v || 0); return total > 0 ? fmtUSD(total) : ""; }}} />
-            <Line type="monotone" dataKey="meta" name="Meta" stroke={C.red} strokeWidth={3} dot={{ fill: C.red, r: 5 }} />
+            <Bar dataKey="embarcado" name="Embarcado" stackId="lob" fill="#ffffff" maxBarSize={50} />
+            <Bar dataKey="outros" name="Outros Status" stackId="lob" fill="#4a5568" radius={[4, 4, 0, 0]} maxBarSize={50} label={<DiffLabel />} />
+            <Line type="monotone" dataKey="meta" name="Meta" stroke={C.red} strokeWidth={3} dot={<MetaDot />} />
           </ComposedChart>
         </ResponsiveContainer>
         <div style={{ display: "flex", gap: 24, justifyContent: "center", marginTop: 4 }}>
-          <span style={{ fontSize: 12, color: "#fff", display: "flex", alignItems: "center", gap: 6, fontFamily: FONT }}><span style={{ width: 14, height: 10, background: "#fff", borderRadius: 2, display: "inline-block" }} /> Embarcado (confirmado)</span>
-          <span style={{ fontSize: 12, color: "#fff", display: "flex", alignItems: "center", gap: 6, fontFamily: FONT }}><span style={{ width: 14, height: 10, background: "#4a5568", borderRadius: 2, display: "inline-block" }} /> Outros Status (projetado)</span>
-          <span style={{ fontSize: 12, color: "#fff", display: "flex", alignItems: "center", gap: 6, fontFamily: FONT }}><span style={{ width: 14, height: 4, background: C.red, borderRadius: 2, display: "inline-block" }} /> Meta</span>
+          <span style={{ fontSize: 13, color: "#fff", display: "flex", alignItems: "center", gap: 6, fontFamily: FONT }}><span style={{ width: 14, height: 10, background: "#fff", borderRadius: 2, display: "inline-block" }} /> Embarcado (confirmado)</span>
+          <span style={{ fontSize: 13, color: "#fff", display: "flex", alignItems: "center", gap: 6, fontFamily: FONT }}><span style={{ width: 14, height: 10, background: "#4a5568", borderRadius: 2, display: "inline-block" }} /> Outros Status (projetado)</span>
+          <span style={{ fontSize: 13, color: "#fff", display: "flex", alignItems: "center", gap: 6, fontFamily: FONT }}><span style={{ width: 14, height: 4, background: C.red, borderRadius: 2, display: "inline-block" }} /> Meta</span>
         </div>
       </Panel>
     </div>
