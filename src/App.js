@@ -1043,37 +1043,39 @@ export default function App() {
           <Clock />
         </div>
       </div>
-      {/* KPIs with mini gauges */}
+      {/* KPIs with gauges */}
       {config.showKPIs && (
         <div style={{ display: "flex", gap: 12, padding: "14px 20px" }}>
           {[
-            { label: `LOB ${d.currentMonthName}`, value: d.lobMesAtual, meta: d.metaMesAtual, color: C.green, icon: "💰" },
-            { label: "LOB Trimestral", value: d.lobTrimestral, meta: d.metaTrimestral, color: C.cyan, icon: "📊" },
-            { label: "LOB Anual", value: d.lobAnoTotal, meta: d.metaAnoTotal, color: C.amber, icon: "🏆" },
+            { label: `LOB ${d.currentMonthName}`, value: d.lobMesAtual, meta: d.metaMesAtual, color: C.green },
+            { label: "LOB Trimestral", value: d.lobTrimestral, meta: d.metaTrimestral, color: C.cyan },
+            { label: "LOB Anual", value: d.lobAnoTotal, meta: d.metaAnoTotal, color: C.amber },
           ].map((kpi, idx) => {
             const pct = kpi.meta > 0 ? (kpi.value / kpi.meta * 100) : 0;
             const arcPct = Math.min(pct, 100);
+            const remaining = kpi.meta - kpi.value;
             return (
-              <div key={idx} style={{ background: `linear-gradient(135deg, ${C.panel}, ${kpi.color}08)`, border: `1px solid ${C.panelBorder}`, borderRadius: 8, padding: "12px 16px", flex: 1, display: "flex", alignItems: "center", gap: 12 }}>
-                <div style={{ position: "relative", width: 56, height: 40, flexShrink: 0 }}>
+              <div key={idx} style={{ background: `linear-gradient(135deg, ${C.panel}, ${kpi.color}08)`, border: `1px solid ${C.panelBorder}`, borderRadius: 8, padding: "14px 20px", flex: 1, display: "flex", alignItems: "center", gap: 20 }}>
+                <div style={{ position: "relative", width: 80, height: 55, flexShrink: 0 }}>
                   <svg viewBox="0 0 120 75" style={{ width: "100%", height: "100%" }}>
-                    <path d="M 10 65 A 50 50 0 0 1 110 65" fill="none" stroke={C.panelBorder} strokeWidth="8" strokeLinecap="round" />
-                    <path d="M 10 65 A 50 50 0 0 1 110 65" fill="none" stroke={pct >= 100 ? C.green : kpi.color} strokeWidth="8" strokeLinecap="round" strokeDasharray={`${(arcPct / 100) * 157} 157`} />
+                    <path d="M 10 65 A 50 50 0 0 1 110 65" fill="none" stroke={C.panelBorder} strokeWidth="7" strokeLinecap="round" />
+                    <path d="M 10 65 A 50 50 0 0 1 110 65" fill="none" stroke={pct >= 100 ? C.green : kpi.color} strokeWidth="7" strokeLinecap="round" strokeDasharray={`${(arcPct / 100) * 157} 157`} style={{ filter: `drop-shadow(0 0 4px ${kpi.color}60)` }} />
                   </svg>
-                  <div style={{ position: "absolute", top: "38%", left: "50%", transform: "translate(-50%, -10%)", fontSize: 9, fontWeight: 800, color: pct >= 100 ? C.green : "#fff", fontFamily: FONT }}>{pct.toFixed(0)}%</div>
+                  <div style={{ position: "absolute", top: "36%", left: "50%", transform: "translate(-50%, -10%)", fontSize: 14, fontWeight: 900, color: pct >= 100 ? C.green : "#fff", fontFamily: FONT }}>{pct.toFixed(0)}%</div>
                 </div>
-                <div>
+                <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, color: "#fff", textTransform: "uppercase", fontFamily: FONT, marginBottom: 2 }}>{kpi.label}</div>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: "#fff", fontFamily: FONT }}>{fmtUSD(kpi.value)}</div>
-                  <div style={{ fontSize: 11, color: C.green, fontWeight: 700, fontFamily: FONT }}>Meta: {fmtUSD(kpi.meta)}</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: "#fff", fontFamily: FONT }}>{fmtUSD(kpi.value)}</div>
+                  <div style={{ fontSize: 12, color: C.green, fontWeight: 700, fontFamily: FONT }}>Meta: {fmtUSD(kpi.meta)}</div>
+                  <div style={{ fontSize: 10, color: remaining > 0 ? C.amber : C.green, fontWeight: 600, fontFamily: FONT }}>{remaining > 0 ? `Faltam ${fmtUSD(remaining)}` : `+${fmtUSD(Math.abs(remaining))}`}</div>
                 </div>
               </div>
             );
           })}
-          <div style={{ background: `linear-gradient(135deg, ${C.panel}, ${C.blue}08)`, border: `1px solid ${C.panelBorder}`, borderRadius: 8, padding: "12px 16px", flex: 1 }}>
+          <div style={{ background: `linear-gradient(135deg, ${C.panel}, ${C.blue}08)`, border: `1px solid ${C.panelBorder}`, borderRadius: 8, padding: "14px 20px", flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" }}>
             <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, color: "#fff", textTransform: "uppercase", fontFamily: FONT, marginBottom: 4 }}>Processos do Mês</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: "#fff", fontFamily: FONT }}>{d.totalOps}</div>
-            <div style={{ fontSize: 11, color: C.green, fontWeight: 700, fontFamily: FONT }}>Ano: {d.totalOpsAno} processos</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: "#fff", fontFamily: FONT }}>{d.totalOps}</div>
+            <div style={{ fontSize: 12, color: C.green, fontWeight: 700, fontFamily: FONT }}>Ano: {d.totalOpsAno} processos</div>
           </div>
         </div>
       )}
