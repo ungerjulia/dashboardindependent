@@ -955,195 +955,129 @@ function getCountryCoords(pais) {
   }
   return null;
 }
-
 function SlideGlobe({ d }) {
-  const canvasRef = useRef(null);
-  const frameRef = useRef(null);
+  const mountRef = useRef(null);
+  const cleanupRef = useRef(null);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = 900 * dpr;
-    canvas.height = 650 * dpr;
-    canvas.style.width = "900px";
-    canvas.style.height = "650px";
-    const ctx = canvas.getContext("2d");
-    ctx.scale(dpr, dpr);
-    const W = 900, H = 650;
-    const cx = W * 0.5, cy = H * 0.5;
-    const R = 280;
-    let rotation = -0.8;
+    const mount = mountRef.current;
+    if (!mount) return;
+    let cancelled = false;
 
-    function project(lat, lng) {
-      const phi = (90 - lat) * Math.PI / 180;
-      const theta = (lng * Math.PI / 180) + rotation;
-      const x = -R * Math.sin(phi) * Math.cos(theta);
-      const y = R * Math.cos(phi);
-      const z = R * Math.sin(phi) * Math.sin(theta);
-      return { x: cx + x, y: cy - y, z };
-    }
+    const script = document.createElement("script");
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js";
+    script.onload = () => {
+      if (cancelled) return;
+      const THREE = window.THREE;
+      const W = mount.clientWidth || 700;
+      const H = mount.clientHeight || 500;
 
-    // More accurate continent outlines
-    const SA = [[-10,-78],[-5,-80],[-2,-50],[2,-50],[5,-60],[10,-72],[12,-70],[5,-77],[-1,-80],[-5,-81],[-10,-78]];
-    const SA2 = [[-10,-78],[-8,-75],[-5,-70],[-10,-65],[-15,-60],[-10,-50],[-15,-47],[-20,-42],[-23,-42],[-25,-48],[-28,-49],[-30,-52],[-33,-55],[-35,-57],[-40,-63],[-42,-65],[-46,-67],[-50,-72],[-53,-72],[-55,-68],[-52,-70],[-48,-75],[-42,-73],[-35,-73],[-30,-72],[-20,-70],[-15,-75],[-10,-78]];
-    const NA = [[8,-78],[10,-84],[15,-88],[18,-88],[20,-90],[22,-98],[25,-100],[28,-105],[30,-115],[33,-118],[37,-123],[42,-125],[48,-125],[52,-128],[55,-132],[58,-137],[60,-147],[62,-155],[64,-165],[66,-168],[68,-165],[70,-160],[71,-155],[70,-145],[65,-140],[60,-138],[58,-135],[55,-130],[52,-125],[48,-123],[44,-125],[40,-124],[38,-123],[35,-120],[32,-117],[30,-110],[28,-97],[25,-82],[23,-80],[20,-87],[16,-87],[12,-84],[8,-78]];
-    const NA2 = [[25,-82],[28,-82],[30,-82],[33,-80],[38,-76],[40,-74],[42,-70],[44,-68],[46,-67],[48,-65],[47,-60],[48,-56],[50,-57],[52,-56],[55,-60],[57,-64],[60,-65],[60,-50],[55,-45],[48,-52],[45,-62],[42,-67],[40,-70],[38,-75],[35,-78],[30,-81],[25,-82]];
-    const AF = [[35,-5],[37,0],[37,10],[33,12],[30,10],[25,0],[20,-16],[15,-17],[10,-15],[5,-8],[2,9],[0,10],[-2,12],[-5,12],[-8,14],[-12,15],[-18,12],[-22,14],[-25,15],[-28,17],[-30,18],[-33,18],[-35,20],[-34,24],[-30,28],[-25,33],[-20,35],[-15,40],[-10,42],[-5,42],[0,43],[5,44],[10,50],[12,51],[15,43],[20,38],[25,35],[28,33],[30,32],[32,32],[35,35],[37,30],[35,20],[37,12],[37,0],[35,-5]];
-    const EU = [[36,-8],[37,-5],[38,0],[40,0],[43,3],[44,5],[46,2],[48,3],[49,7],[50,5],[52,5],[53,8],[55,10],[55,12],[57,12],[58,15],[60,18],[62,20],[65,25],[68,30],[70,28],[68,20],[65,14],[63,10],[60,5],[58,8],[55,8],[54,10],[55,14],[60,25],[62,30],[60,32],[58,30],[55,28],[53,22],[50,20],[48,18],[46,15],[43,13],[41,15],[40,18],[38,22],[40,25],[40,28],[38,26],[36,28],[35,25],[36,15],[38,15],[38,10],[36,-8]];
-    const AS = [[30,35],[35,38],[38,42],[40,45],[42,50],[45,55],[48,55],[50,60],[52,58],[55,60],[58,58],[60,60],[62,65],[65,70],[68,72],[70,75],[72,80],[70,90],[68,95],[70,100],[72,110],[72,125],[70,135],[68,140],[65,142],[60,140],[55,138],[50,135],[48,140],[45,142],[43,145],[42,142],[40,140],[38,138],[36,140],[35,137],[34,132],[32,130],[30,122],[28,120],[25,120],[22,115],[20,110],[15,108],[12,105],[10,106],[8,104],[5,104],[2,104],[0,105],[-3,106],[-5,108],[-7,110],[-8,115],[0,105],[5,100],[8,98],[10,80],[12,78],[15,75],[18,72],[20,70],[22,65],[25,58],[28,50],[30,45],[30,35]];
-    const AU = [[-12,133],[-14,130],[-16,128],[-18,123],[-20,118],[-22,115],[-25,114],[-28,114],[-30,116],[-32,118],[-34,120],[-35,125],[-36,135],[-38,145],[-37,148],[-35,150],[-33,152],[-30,153],[-28,154],[-25,153],[-22,150],[-20,148],[-16,146],[-14,142],[-12,137],[-12,133]];
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(45, W / H, 0.1, 1000);
+      camera.position.z = 2.6;
 
-    const allContinents = [SA, SA2, NA, NA2, AF, EU, AS, AU];
+      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setSize(W, H);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setClearColor(0x000000, 0);
+      mount.appendChild(renderer.domElement);
 
-    function drawContinent(points) {
-      ctx.beginPath();
-      let started = false;
-      for (let i = 0; i < points.length; i++) {
-        const p = project(points[i][0], points[i][1]);
-        if (p.z > 0) {
-          if (!started) { ctx.moveTo(p.x, p.y); started = true; }
-          else ctx.lineTo(p.x, p.y);
-        } else {
-          started = false;
-        }
-      }
-      if (started) { ctx.closePath(); ctx.fill(); ctx.stroke(); }
-    }
+      const globe = new THREE.Mesh(
+        new THREE.SphereGeometry(1, 64, 64),
+        new THREE.MeshPhongMaterial({
+          map: new THREE.TextureLoader().load("https://unpkg.com/three-globe@2.31.1/example/img/earth-blue-marble.jpg"),
+          bumpScale: 0.02,
+          specular: new THREE.Color(0x222222),
+          shininess: 10,
+        })
+      );
+      scene.add(globe);
 
-    function draw() {
-      ctx.clearRect(0, 0, W, H);
+      const atmos = new THREE.Mesh(
+        new THREE.SphereGeometry(1.03, 64, 64),
+        new THREE.MeshBasicMaterial({ color: 0x2979ff, transparent: true, opacity: 0.07, side: THREE.BackSide })
+      );
+      scene.add(atmos);
 
-      // Atmospheric glow
-      const glow = ctx.createRadialGradient(cx, cy, R * 0.85, cx, cy, R * 1.4);
-      glow.addColorStop(0, "rgba(0,229,255,0.06)");
-      glow.addColorStop(0.5, "rgba(41,121,255,0.03)");
-      glow.addColorStop(1, "rgba(0,0,0,0)");
-      ctx.fillStyle = glow;
-      ctx.fillRect(0, 0, W, H);
+      scene.add(new THREE.AmbientLight(0x606060, 1.5));
+      const dLight = new THREE.DirectionalLight(0xffffff, 1);
+      dLight.position.set(5, 3, 5);
+      scene.add(dLight);
 
-      // Ocean
-      ctx.beginPath();
-      ctx.arc(cx, cy, R, 0, Math.PI * 2);
-      const oceanGrad = ctx.createRadialGradient(cx - R * 0.3, cy - R * 0.3, 0, cx, cy, R);
-      oceanGrad.addColorStop(0, "#0f1e33");
-      oceanGrad.addColorStop(1, "#0a1220");
-      ctx.fillStyle = oceanGrad;
-      ctx.fill();
-      ctx.strokeStyle = "rgba(0,229,255,0.2)";
-      ctx.lineWidth = 2;
-      ctx.stroke();
-
-      // Grid
-      ctx.strokeStyle = "rgba(30,58,95,0.2)";
-      ctx.lineWidth = 0.5;
-      for (let lat = -60; lat <= 60; lat += 30) {
-        ctx.beginPath();
-        for (let lng = -180; lng <= 180; lng += 2) {
-          const p = project(lat, lng);
-          if (p.z > 0) {
-            const prev = project(lat, lng - 2);
-            if (prev.z <= 0) ctx.moveTo(p.x, p.y);
-            else ctx.lineTo(p.x, p.y);
-          }
-        }
-        ctx.stroke();
-      }
-      for (let lng = -180; lng < 180; lng += 30) {
-        ctx.beginPath();
-        for (let lat = -90; lat <= 90; lat += 2) {
-          const p = project(lat, lng);
-          if (p.z > 0) {
-            const prev = project(lat - 2, lng);
-            if (prev.z <= 0) ctx.moveTo(p.x, p.y);
-            else ctx.lineTo(p.x, p.y);
-          }
-        }
-        ctx.stroke();
+      function ll2v(lat, lng, r) {
+        const phi = (90 - lat) * Math.PI / 180;
+        const theta = (lng + 180) * Math.PI / 180;
+        return new THREE.Vector3(-r * Math.sin(phi) * Math.cos(theta), r * Math.cos(phi), r * Math.sin(phi) * Math.sin(theta));
       }
 
-      // Continents
-      ctx.fillStyle = "rgba(20,60,100,0.35)";
-      ctx.strokeStyle = "rgba(0,229,255,0.3)";
-      ctx.lineWidth = 1;
-      allContinents.forEach(c => drawContinent(c));
+      const group = new THREE.Group();
 
-      // Brazil highlight
-      const br = project(-14.24, -51.93);
-      if (br.z > 0) {
-        ctx.beginPath();
-        ctx.arc(br.x, br.y, 8, 0, Math.PI * 2);
-        ctx.fillStyle = C.green;
-        ctx.shadowColor = C.green;
-        ctx.shadowBlur = 20;
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        ctx.font = `bold 13px ${FONT}`;
-        ctx.fillStyle = C.green;
-        ctx.textAlign = "center";
-        ctx.fillText("BRASIL", br.x, br.y - 16);
-      }
+      // Brazil
+      const brPos = ll2v(-14.24, -51.93, 1.015);
+      const brM = new THREE.Mesh(new THREE.SphereGeometry(0.022, 16, 16), new THREE.MeshBasicMaterial({ color: 0x00e676 }));
+      brM.position.copy(brPos);
+      group.add(brM);
+      const brG = new THREE.Mesh(new THREE.SphereGeometry(0.045, 16, 16), new THREE.MeshBasicMaterial({ color: 0x00e676, transparent: true, opacity: 0.25 }));
+      brG.position.copy(brPos);
+      group.add(brG);
 
-      // Country markers and arcs
       d.globeData.forEach(item => {
         const coords = getCountryCoords(item.pais);
         if (!coords) return;
-        const p = project(coords[0], coords[1]);
-        if (p.z <= 0) return;
-
         const isImpo = item.tipo === "IMPO";
-        const color = isImpo ? "#ffffff" : C.blue;
+        const color = isImpo ? 0xffffff : 0x2979ff;
+        const pos = ll2v(coords[0], coords[1], 1.015);
+        const sz = 0.014 + Math.min(item.count * 0.004, 0.016);
 
-        // Arc from Brazil
-        if (br.z > 0) {
-          ctx.beginPath();
-          ctx.strokeStyle = `${color}35`;
-          ctx.lineWidth = 1.5;
-          const midX = (br.x + p.x) / 2;
-          const midY = Math.min(br.y, p.y) - 50 - Math.abs(br.x - p.x) * 0.15;
-          ctx.moveTo(br.x, br.y);
-          ctx.quadraticCurveTo(midX, midY, p.x, p.y);
-          ctx.stroke();
+        group.add(new THREE.Mesh(new THREE.SphereGeometry(sz, 12, 12), new THREE.MeshBasicMaterial({ color })).clone().translateX(pos.x).translateY(pos.y).translateZ(pos.z) ? (() => { const m = new THREE.Mesh(new THREE.SphereGeometry(sz, 12, 12), new THREE.MeshBasicMaterial({ color })); m.position.copy(pos); return m; })() : null);
 
-          // Animated dot on arc
-          const t = (Date.now() % 3000) / 3000;
-          const ax = (1-t)*(1-t)*br.x + 2*(1-t)*t*midX + t*t*p.x;
-          const ay = (1-t)*(1-t)*br.y + 2*(1-t)*t*midY + t*t*p.y;
-          ctx.beginPath();
-          ctx.arc(ax, ay, 2, 0, Math.PI * 2);
-          ctx.fillStyle = color;
-          ctx.fill();
-        }
+        // Simpler: just add marker
+        const marker = new THREE.Mesh(new THREE.SphereGeometry(sz, 12, 12), new THREE.MeshBasicMaterial({ color }));
+        marker.position.copy(pos);
+        group.add(marker);
 
-        // Marker glow
-        const markerSize = 4 + Math.min(item.count * 2, 10);
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, markerSize, 0, Math.PI * 2);
-        ctx.fillStyle = `${color}25`;
-        ctx.fill();
+        const glow = new THREE.Mesh(new THREE.SphereGeometry(sz * 2, 12, 12), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.2 }));
+        glow.position.copy(pos);
+        group.add(glow);
 
-        // Marker dot
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
-        ctx.fillStyle = color;
-        ctx.shadowColor = color;
-        ctx.shadowBlur = 8;
-        ctx.fill();
-        ctx.shadowBlur = 0;
-
-        // Country label
-        ctx.font = `bold 11px ${FONT}`;
-        ctx.fillStyle = color;
-        ctx.textAlign = "center";
-        ctx.fillText(item.pais, p.x, p.y - markerSize - 4);
+        // Arc
+        const mid = new THREE.Vector3().addVectors(brPos, pos).multiplyScalar(0.5);
+        const dist = brPos.distanceTo(pos);
+        mid.normalize().multiplyScalar(1 + dist * 0.35);
+        const curve = new THREE.QuadraticBezierCurve3(brPos, mid, pos);
+        const arcLine = new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(curve.getPoints(40)),
+          new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.35 })
+        );
+        group.add(arcLine);
       });
 
-      rotation += 0.002;
-      frameRef.current = requestAnimationFrame(draw);
-    }
+      scene.add(group);
+      globe.rotation.y = -1.5;
+      group.rotation.y = -1.5;
 
-    draw();
-    return () => { if (frameRef.current) cancelAnimationFrame(frameRef.current); };
+      let animId;
+      function animate() {
+        globe.rotation.y += 0.0015;
+        group.rotation.y += 0.0015;
+        renderer.render(scene, camera);
+        animId = requestAnimationFrame(animate);
+      }
+      animate();
+
+      cleanupRef.current = () => {
+        cancelAnimationFrame(animId);
+        if (mount.contains(renderer.domElement)) mount.removeChild(renderer.domElement);
+        renderer.dispose();
+        geometry && geometry.dispose();
+      };
+    };
+    document.head.appendChild(script);
+
+    return () => {
+      cancelled = true;
+      if (cleanupRef.current) cleanupRef.current();
+    };
   }, [d.globeData]);
 
   const impoData = d.globeData.filter(g => g.tipo === "IMPO");
@@ -1155,7 +1089,6 @@ function SlideGlobe({ d }) {
     <div style={{ flex: 1, padding: "0 20px", display: "flex", flexDirection: "column", gap: 4 }}>
       <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>🌍 OPERAÇÕES GLOBAIS — {d.currentMonthName.toUpperCase()}</div>
       <div style={{ display: "flex", flex: 1, gap: 8 }}>
-        {/* Left legend — IMPO */}
         <div style={{ width: 220, display: "flex", flexDirection: "column", gap: 6, justifyContent: "center", padding: "0 8px" }}>
           <div style={{ fontSize: 16, fontWeight: 800, color: "#fff", fontFamily: FONT, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ width: 12, height: 12, background: "#fff", borderRadius: "50%", display: "inline-block", boxShadow: "0 0 6px rgba(255,255,255,0.5)" }} /> IMPORTAÇÃO
@@ -1166,19 +1099,9 @@ function SlideGlobe({ d }) {
               <span style={{ fontWeight: 800 }}>{fmtUSD(g.lob)} <span style={{ color: C.muted, fontWeight: 400 }}>({g.count})</span></span>
             </div>
           )) : <div style={{ fontSize: 12, color: C.muted }}>Sem dados no mês</div>}
-          {impoData.length > 0 && (
-            <div style={{ fontSize: 14, fontWeight: 800, color: "#fff", fontFamily: FONT, marginTop: 4, paddingTop: 6, borderTop: `2px solid ${C.panelBorder}` }}>
-              Total: {fmtUSD(totalImpo)}
-            </div>
-          )}
+          {impoData.length > 0 && <div style={{ fontSize: 14, fontWeight: 800, color: "#fff", fontFamily: FONT, marginTop: 4, paddingTop: 6, borderTop: `2px solid ${C.panelBorder}` }}>Total: {fmtUSD(totalImpo)}</div>}
         </div>
-
-        {/* Globe */}
-        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <canvas ref={canvasRef} style={{ maxWidth: "100%", maxHeight: "100%" }} />
-        </div>
-
-        {/* Right legend — EXPO */}
+        <div ref={mountRef} style={{ flex: 1, minHeight: 450 }} />
         <div style={{ width: 220, display: "flex", flexDirection: "column", gap: 6, justifyContent: "center", padding: "0 8px" }}>
           <div style={{ fontSize: 16, fontWeight: 800, color: C.blue, fontFamily: FONT, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ width: 12, height: 12, background: C.blue, borderRadius: "50%", display: "inline-block", boxShadow: `0 0 6px ${C.blue}80` }} /> EXPORTAÇÃO
@@ -1189,17 +1112,12 @@ function SlideGlobe({ d }) {
               <span style={{ fontWeight: 800 }}>{fmtUSD(g.lob)} <span style={{ color: C.muted, fontWeight: 400 }}>({g.count})</span></span>
             </div>
           )) : <div style={{ fontSize: 12, color: C.muted }}>Sem dados no mês</div>}
-          {expoData.length > 0 && (
-            <div style={{ fontSize: 14, fontWeight: 800, color: C.blue, fontFamily: FONT, marginTop: 4, paddingTop: 6, borderTop: `2px solid ${C.panelBorder}` }}>
-              Total: {fmtUSD(totalExpo)}
-            </div>
-          )}
+          {expoData.length > 0 && <div style={{ fontSize: 14, fontWeight: 800, color: C.blue, fontFamily: FONT, marginTop: 4, paddingTop: 6, borderTop: `2px solid ${C.panelBorder}` }}>Total: {fmtUSD(totalExpo)}</div>}
         </div>
       </div>
     </div>
   );
 }
-
 
 function SlideProdutos({ d }) {
   const linhas = Object.entries(d.produtosPorLinha);
