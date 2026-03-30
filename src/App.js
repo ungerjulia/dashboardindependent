@@ -146,7 +146,7 @@ function processData(lob, metasTrader, metaLinha, metaGlobal) {
       etdMonth: etd ? etd.getMonth() : -1,
       etdYear: etd ? etd.getFullYear() : -1,
       lob: parseMoney(r[headerMap.lob] || "0"),
-      tipo: (r[headerMap.tipo] || "").trim().toUpperCase(),
+      tipo: (() => { const t = (r[headerMap.tipo] || "").trim().toLowerCase(); if (t.startsWith("import")) return "IMPO"; if (t.startsWith("export")) return "EXPO"; return t.toUpperCase(); })(),
       pais: (r[headerMap.pais] || "").trim(),
     };
   });
@@ -962,112 +962,132 @@ function SlideGlobe({ d }) {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = 900 * dpr;
+    canvas.height = 650 * dpr;
+    canvas.style.width = "900px";
+    canvas.style.height = "650px";
     const ctx = canvas.getContext("2d");
-    const W = canvas.width, H = canvas.height;
+    ctx.scale(dpr, dpr);
+    const W = 900, H = 650;
     const cx = W * 0.5, cy = H * 0.5;
-    const R = Math.min(W, H) * 0.34;
-    let rotation = -0.5;
+    const R = 280;
+    let rotation = -0.8;
 
-    function latLngTo3D(lat, lng, r) {
+    function project(lat, lng) {
       const phi = (90 - lat) * Math.PI / 180;
-      const theta = (lng + rotation * 180 / Math.PI) * Math.PI / 180;
-      const x = r * Math.sin(phi) * Math.cos(theta);
-      const y = r * Math.cos(phi);
-      const z = r * Math.sin(phi) * Math.sin(theta);
+      const theta = (lng * Math.PI / 180) + rotation;
+      const x = R * Math.sin(phi) * Math.cos(theta);
+      const y = R * Math.cos(phi);
+      const z = R * Math.sin(phi) * Math.sin(theta);
       return { x: cx + x, y: cy - y, z };
     }
 
-    // Simple continent outlines (simplified points)
-    const continents = [
-      // South America
-      [[-5,-80],[-15,-75],[-23,-70],[-35,-72],[-55,-70],[-55,-65],[-40,-63],[-33,-58],[-23,-43],[-12,-37],[-3,-40],[5,-60],[10,-72],[5,-77],[-5,-80]],
-      // North America
-      [[10,-80],[15,-90],[20,-105],[30,-115],[35,-120],[48,-125],[55,-130],[60,-140],[65,-165],[70,-160],[72,-155],[70,-140],[60,-135],[55,-125],[48,-120],[40,-75],[35,-80],[30,-82],[25,-80],[20,-88],[15,-85],[10,-80]],
-      // Africa
-      [[-35,18],[-25,30],[-15,40],[-5,42],[5,45],[12,50],[15,40],[30,32],[35,10],[37,-5],[35,-10],[30,-15],[15,-17],[5,-10],[0,10],[-5,12],[-15,15],[-25,15],[-35,18]],
-      // Europe
-      [[36,-5],[38,0],[43,5],[46,2],[48,7],[52,5],[55,10],[58,12],[62,15],[65,25],[60,30],[55,28],[50,30],[45,25],[40,28],[36,25],[38,20],[35,15],[36,-5]],
-      // Asia
-      [[30,50],[35,55],[40,60],[45,65],[50,70],[55,75],[60,80],[65,90],[60,100],[55,110],[50,120],[45,130],[40,135],[35,140],[30,130],[25,120],[20,110],[15,100],[10,105],[5,100],[0,105],[-5,115],[-8,120],[5,100],[10,80],[15,75],[20,70],[25,60],[30,50]],
-      // Australia
-      [[-15,130],[-20,115],[-25,115],[-30,118],[-35,120],[-38,145],[-35,150],[-28,155],[-20,148],[-12,142],[-12,135],[-15,130]],
-    ];
+    // More accurate continent outlines
+    const SA = [[-10,-78],[-5,-80],[-2,-50],[2,-50],[5,-60],[10,-72],[12,-70],[5,-77],[-1,-80],[-5,-81],[-10,-78]];
+    const SA2 = [[-10,-78],[-8,-75],[-5,-70],[-10,-65],[-15,-60],[-10,-50],[-15,-47],[-20,-42],[-23,-42],[-25,-48],[-28,-49],[-30,-52],[-33,-55],[-35,-57],[-40,-63],[-42,-65],[-46,-67],[-50,-72],[-53,-72],[-55,-68],[-52,-70],[-48,-75],[-42,-73],[-35,-73],[-30,-72],[-20,-70],[-15,-75],[-10,-78]];
+    const NA = [[8,-78],[10,-84],[15,-88],[18,-88],[20,-90],[22,-98],[25,-100],[28,-105],[30,-115],[33,-118],[37,-123],[42,-125],[48,-125],[52,-128],[55,-132],[58,-137],[60,-147],[62,-155],[64,-165],[66,-168],[68,-165],[70,-160],[71,-155],[70,-145],[65,-140],[60,-138],[58,-135],[55,-130],[52,-125],[48,-123],[44,-125],[40,-124],[38,-123],[35,-120],[32,-117],[30,-110],[28,-97],[25,-82],[23,-80],[20,-87],[16,-87],[12,-84],[8,-78]];
+    const NA2 = [[25,-82],[28,-82],[30,-82],[33,-80],[38,-76],[40,-74],[42,-70],[44,-68],[46,-67],[48,-65],[47,-60],[48,-56],[50,-57],[52,-56],[55,-60],[57,-64],[60,-65],[60,-50],[55,-45],[48,-52],[45,-62],[42,-67],[40,-70],[38,-75],[35,-78],[30,-81],[25,-82]];
+    const AF = [[35,-5],[37,0],[37,10],[33,12],[30,10],[25,0],[20,-16],[15,-17],[10,-15],[5,-8],[2,9],[0,10],[-2,12],[-5,12],[-8,14],[-12,15],[-18,12],[-22,14],[-25,15],[-28,17],[-30,18],[-33,18],[-35,20],[-34,24],[-30,28],[-25,33],[-20,35],[-15,40],[-10,42],[-5,42],[0,43],[5,44],[10,50],[12,51],[15,43],[20,38],[25,35],[28,33],[30,32],[32,32],[35,35],[37,30],[35,20],[37,12],[37,0],[35,-5]];
+    const EU = [[36,-8],[37,-5],[38,0],[40,0],[43,3],[44,5],[46,2],[48,3],[49,7],[50,5],[52,5],[53,8],[55,10],[55,12],[57,12],[58,15],[60,18],[62,20],[65,25],[68,30],[70,28],[68,20],[65,14],[63,10],[60,5],[58,8],[55,8],[54,10],[55,14],[60,25],[62,30],[60,32],[58,30],[55,28],[53,22],[50,20],[48,18],[46,15],[43,13],[41,15],[40,18],[38,22],[40,25],[40,28],[38,26],[36,28],[35,25],[36,15],[38,15],[38,10],[36,-8]];
+    const AS = [[30,35],[35,38],[38,42],[40,45],[42,50],[45,55],[48,55],[50,60],[52,58],[55,60],[58,58],[60,60],[62,65],[65,70],[68,72],[70,75],[72,80],[70,90],[68,95],[70,100],[72,110],[72,125],[70,135],[68,140],[65,142],[60,140],[55,138],[50,135],[48,140],[45,142],[43,145],[42,142],[40,140],[38,138],[36,140],[35,137],[34,132],[32,130],[30,122],[28,120],[25,120],[22,115],[20,110],[15,108],[12,105],[10,106],[8,104],[5,104],[2,104],[0,105],[-3,106],[-5,108],[-7,110],[-8,115],[0,105],[5,100],[8,98],[10,80],[12,78],[15,75],[18,72],[20,70],[22,65],[25,58],[28,50],[30,45],[30,35]];
+    const AU = [[-12,133],[-14,130],[-16,128],[-18,123],[-20,118],[-22,115],[-25,114],[-28,114],[-30,116],[-32,118],[-34,120],[-35,125],[-36,135],[-38,145],[-37,148],[-35,150],[-33,152],[-30,153],[-28,154],[-25,153],[-22,150],[-20,148],[-16,146],[-14,142],[-12,137],[-12,133]];
+
+    const allContinents = [SA, SA2, NA, NA2, AF, EU, AS, AU];
+
+    function drawContinent(points) {
+      ctx.beginPath();
+      let started = false;
+      for (let i = 0; i < points.length; i++) {
+        const p = project(points[i][0], points[i][1]);
+        if (p.z > 0) {
+          if (!started) { ctx.moveTo(p.x, p.y); started = true; }
+          else ctx.lineTo(p.x, p.y);
+        } else {
+          started = false;
+        }
+      }
+      if (started) { ctx.closePath(); ctx.fill(); ctx.stroke(); }
+    }
 
     function draw() {
       ctx.clearRect(0, 0, W, H);
 
-      // Glow
-      const glow = ctx.createRadialGradient(cx, cy, R * 0.9, cx, cy, R * 1.3);
-      glow.addColorStop(0, "rgba(41,121,255,0.08)");
+      // Atmospheric glow
+      const glow = ctx.createRadialGradient(cx, cy, R * 0.85, cx, cy, R * 1.4);
+      glow.addColorStop(0, "rgba(0,229,255,0.06)");
+      glow.addColorStop(0.5, "rgba(41,121,255,0.03)");
       glow.addColorStop(1, "rgba(0,0,0,0)");
       ctx.fillStyle = glow;
       ctx.fillRect(0, 0, W, H);
 
-      // Globe sphere
+      // Ocean
       ctx.beginPath();
       ctx.arc(cx, cy, R, 0, Math.PI * 2);
-      ctx.fillStyle = "#0d1520";
+      const oceanGrad = ctx.createRadialGradient(cx - R * 0.3, cy - R * 0.3, 0, cx, cy, R);
+      oceanGrad.addColorStop(0, "#0f1e33");
+      oceanGrad.addColorStop(1, "#0a1220");
+      ctx.fillStyle = oceanGrad;
       ctx.fill();
-      ctx.strokeStyle = "#1e3a5f";
-      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = "rgba(0,229,255,0.2)";
+      ctx.lineWidth = 2;
       ctx.stroke();
 
-      // Grid lines
-      ctx.strokeStyle = "rgba(30,58,95,0.3)";
+      // Grid
+      ctx.strokeStyle = "rgba(30,58,95,0.2)";
       ctx.lineWidth = 0.5;
       for (let lat = -60; lat <= 60; lat += 30) {
         ctx.beginPath();
-        for (let lng = -180; lng <= 180; lng += 3) {
-          const p = latLngTo3D(lat, lng, R);
-          if (p.z > 0) { if (lng === -180 || latLngTo3D(lat, lng - 3, R).z <= 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); }
+        for (let lng = -180; lng <= 180; lng += 2) {
+          const p = project(lat, lng);
+          if (p.z > 0) {
+            const prev = project(lat, lng - 2);
+            if (prev.z <= 0) ctx.moveTo(p.x, p.y);
+            else ctx.lineTo(p.x, p.y);
+          }
         }
         ctx.stroke();
       }
       for (let lng = -180; lng < 180; lng += 30) {
         ctx.beginPath();
-        for (let lat = -90; lat <= 90; lat += 3) {
-          const p = latLngTo3D(lat, lng, R);
-          if (p.z > 0) { if (lat === -90 || latLngTo3D(lat - 3, lng, R).z <= 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); }
+        for (let lat = -90; lat <= 90; lat += 2) {
+          const p = project(lat, lng);
+          if (p.z > 0) {
+            const prev = project(lat - 2, lng);
+            if (prev.z <= 0) ctx.moveTo(p.x, p.y);
+            else ctx.lineTo(p.x, p.y);
+          }
         }
         ctx.stroke();
       }
 
       // Continents
-      ctx.fillStyle = "rgba(30,80,120,0.25)";
-      ctx.strokeStyle = "rgba(41,121,255,0.4)";
+      ctx.fillStyle = "rgba(20,60,100,0.35)";
+      ctx.strokeStyle = "rgba(0,229,255,0.3)";
       ctx.lineWidth = 1;
-      continents.forEach(pts => {
-        ctx.beginPath();
-        let started = false;
-        pts.forEach(([lat, lng]) => {
-          const p = latLngTo3D(lat, lng, R);
-          if (p.z > 0) { if (!started) { ctx.moveTo(p.x, p.y); started = true; } else ctx.lineTo(p.x, p.y); }
-        });
-        if (started) { ctx.fill(); ctx.stroke(); }
-      });
+      allContinents.forEach(c => drawContinent(c));
 
-      // Brazil marker
-      const br = latLngTo3D(-14.24, -51.93, R);
+      // Brazil highlight
+      const br = project(-14.24, -51.93);
       if (br.z > 0) {
         ctx.beginPath();
-        ctx.arc(br.x, br.y, 6, 0, Math.PI * 2);
+        ctx.arc(br.x, br.y, 8, 0, Math.PI * 2);
         ctx.fillStyle = C.green;
-        ctx.fill();
         ctx.shadowColor = C.green;
-        ctx.shadowBlur = 12;
+        ctx.shadowBlur = 20;
         ctx.fill();
         ctx.shadowBlur = 0;
-        ctx.font = `bold 11px ${FONT}`;
+        ctx.font = `bold 13px ${FONT}`;
         ctx.fillStyle = C.green;
         ctx.textAlign = "center";
-        ctx.fillText("BRASIL", br.x, br.y - 12);
+        ctx.fillText("BRASIL", br.x, br.y - 16);
       }
 
       // Country markers and arcs
       d.globeData.forEach(item => {
         const coords = getCountryCoords(item.pais);
         if (!coords) return;
-        const p = latLngTo3D(coords[0], coords[1], R);
+        const p = project(coords[0], coords[1]);
         if (p.z <= 0) return;
 
         const isImpo = item.tipo === "IMPO";
@@ -1076,33 +1096,48 @@ function SlideGlobe({ d }) {
         // Arc from Brazil
         if (br.z > 0) {
           ctx.beginPath();
-          ctx.strokeStyle = `${color}40`;
+          ctx.strokeStyle = `${color}35`;
           ctx.lineWidth = 1.5;
           const midX = (br.x + p.x) / 2;
-          const midY = Math.min(br.y, p.y) - 40;
+          const midY = Math.min(br.y, p.y) - 50 - Math.abs(br.x - p.x) * 0.15;
           ctx.moveTo(br.x, br.y);
           ctx.quadraticCurveTo(midX, midY, p.x, p.y);
           ctx.stroke();
+
+          // Animated dot on arc
+          const t = (Date.now() % 3000) / 3000;
+          const ax = (1-t)*(1-t)*br.x + 2*(1-t)*t*midX + t*t*p.x;
+          const ay = (1-t)*(1-t)*br.y + 2*(1-t)*t*midY + t*t*p.y;
+          ctx.beginPath();
+          ctx.arc(ax, ay, 2, 0, Math.PI * 2);
+          ctx.fillStyle = color;
+          ctx.fill();
         }
 
-        // Marker
+        // Marker glow
+        const markerSize = 4 + Math.min(item.count * 2, 10);
         ctx.beginPath();
-        ctx.arc(p.x, p.y, 4 + Math.min(item.count * 1.5, 8), 0, Math.PI * 2);
-        ctx.fillStyle = `${color}60`;
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
-        ctx.fillStyle = color;
+        ctx.arc(p.x, p.y, markerSize, 0, Math.PI * 2);
+        ctx.fillStyle = `${color}25`;
         ctx.fill();
 
-        // Label
-        ctx.font = `bold 9px ${FONT}`;
+        // Marker dot
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 8;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        // Country label
+        ctx.font = `bold 11px ${FONT}`;
         ctx.fillStyle = color;
         ctx.textAlign = "center";
-        ctx.fillText(item.pais, p.x, p.y - 10);
+        ctx.fillText(item.pais, p.x, p.y - markerSize - 4);
       });
 
-      rotation += 0.003;
+      rotation += 0.002;
       frameRef.current = requestAnimationFrame(draw);
     }
 
@@ -1112,47 +1147,58 @@ function SlideGlobe({ d }) {
 
   const impoData = d.globeData.filter(g => g.tipo === "IMPO");
   const expoData = d.globeData.filter(g => g.tipo === "EXPO");
+  const totalImpo = impoData.reduce((s, g) => s + g.lob, 0);
+  const totalExpo = expoData.reduce((s, g) => s + g.lob, 0);
 
   return (
-    <div style={{ flex: 1, padding: "0 20px", display: "flex", flexDirection: "column", gap: 8 }}>
+    <div style={{ flex: 1, padding: "0 20px", display: "flex", flexDirection: "column", gap: 4 }}>
       <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>🌍 OPERAÇÕES GLOBAIS — {d.currentMonthName.toUpperCase()}</div>
-      <div style={{ display: "flex", flex: 1, gap: 16 }}>
+      <div style={{ display: "flex", flex: 1, gap: 8 }}>
         {/* Left legend — IMPO */}
-        <div style={{ width: 200, display: "flex", flexDirection: "column", gap: 6, justifyContent: "center" }}>
-          <div style={{ fontSize: 14, fontWeight: 800, color: "#fff", fontFamily: FONT, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ width: 10, height: 10, background: "#fff", borderRadius: "50%", display: "inline-block" }} /> IMPORTAÇÃO
+        <div style={{ width: 220, display: "flex", flexDirection: "column", gap: 6, justifyContent: "center", padding: "0 8px" }}>
+          <div style={{ fontSize: 16, fontWeight: 800, color: "#fff", fontFamily: FONT, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ width: 12, height: 12, background: "#fff", borderRadius: "50%", display: "inline-block", boxShadow: "0 0 6px rgba(255,255,255,0.5)" }} /> IMPORTAÇÃO
           </div>
-          {impoData.map(g => (
-            <div key={g.pais} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#fff", fontFamily: FONT }}>
-              <span>{g.pais}</span>
-              <span style={{ fontWeight: 700 }}>{fmtUSD(g.lob)} ({g.count})</span>
+          {impoData.length > 0 ? impoData.map(g => (
+            <div key={g.pais} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#fff", fontFamily: FONT, padding: "4px 0", borderBottom: `1px solid ${C.panelBorder}` }}>
+              <span style={{ fontWeight: 600 }}>{g.pais}</span>
+              <span style={{ fontWeight: 800 }}>{fmtUSD(g.lob)} <span style={{ color: C.muted, fontWeight: 400 }}>({g.count})</span></span>
             </div>
-          ))}
-          {impoData.length === 0 && <div style={{ fontSize: 11, color: C.muted }}>Sem dados</div>}
+          )) : <div style={{ fontSize: 12, color: C.muted }}>Sem dados no mês</div>}
+          {impoData.length > 0 && (
+            <div style={{ fontSize: 14, fontWeight: 800, color: "#fff", fontFamily: FONT, marginTop: 4, paddingTop: 6, borderTop: `2px solid ${C.panelBorder}` }}>
+              Total: {fmtUSD(totalImpo)}
+            </div>
+          )}
         </div>
 
         {/* Globe */}
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <canvas ref={canvasRef} width={600} height={500} style={{ maxWidth: "100%", maxHeight: "100%" }} />
+          <canvas ref={canvasRef} style={{ maxWidth: "100%", maxHeight: "100%" }} />
         </div>
 
         {/* Right legend — EXPO */}
-        <div style={{ width: 200, display: "flex", flexDirection: "column", gap: 6, justifyContent: "center" }}>
-          <div style={{ fontSize: 14, fontWeight: 800, color: C.blue, fontFamily: FONT, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ width: 10, height: 10, background: C.blue, borderRadius: "50%", display: "inline-block" }} /> EXPORTAÇÃO
+        <div style={{ width: 220, display: "flex", flexDirection: "column", gap: 6, justifyContent: "center", padding: "0 8px" }}>
+          <div style={{ fontSize: 16, fontWeight: 800, color: C.blue, fontFamily: FONT, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ width: 12, height: 12, background: C.blue, borderRadius: "50%", display: "inline-block", boxShadow: `0 0 6px ${C.blue}80` }} /> EXPORTAÇÃO
           </div>
-          {expoData.map(g => (
-            <div key={g.pais} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.blue, fontFamily: FONT }}>
-              <span>{g.pais}</span>
-              <span style={{ fontWeight: 700 }}>{fmtUSD(g.lob)} ({g.count})</span>
+          {expoData.length > 0 ? expoData.map(g => (
+            <div key={g.pais} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.blue, fontFamily: FONT, padding: "4px 0", borderBottom: `1px solid ${C.panelBorder}` }}>
+              <span style={{ fontWeight: 600 }}>{g.pais}</span>
+              <span style={{ fontWeight: 800 }}>{fmtUSD(g.lob)} <span style={{ color: C.muted, fontWeight: 400 }}>({g.count})</span></span>
             </div>
-          ))}
-          {expoData.length === 0 && <div style={{ fontSize: 11, color: C.muted }}>Sem dados</div>}
+          )) : <div style={{ fontSize: 12, color: C.muted }}>Sem dados no mês</div>}
+          {expoData.length > 0 && (
+            <div style={{ fontSize: 14, fontWeight: 800, color: C.blue, fontFamily: FONT, marginTop: 4, paddingTop: 6, borderTop: `2px solid ${C.panelBorder}` }}>
+              Total: {fmtUSD(totalExpo)}
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
+
 
 function SlideProdutos({ d }) {
   const linhas = Object.entries(d.produtosPorLinha);
