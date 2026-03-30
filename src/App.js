@@ -636,6 +636,7 @@ function SettingsPanel({ config, setConfig, onClose }) {
 // ══════════════════════════════════════════════════════════════
 const SLIDE_NAMES = ["Visão Geral", "Ranking de Traders", "Linhas de Negócio", "Status dos Processos", "Metas Globais", "Margens de Venda", "Produtos por Linha", "Operações Globais"];
 const SLIDE_INTERVAL = 20000;
+const SLIDE_TIMES = { 7: 30000 }; // Slide 7 (Globe) = 30s, others = 20s
 
 function SlideOverview({ d }) {
   // Custom label for bars showing total and difference vs meta
@@ -977,7 +978,7 @@ function SlideGlobe({ d }) {
     function project(lat, lng) {
       const phi = (90 - lat) * Math.PI / 180;
       const theta = (lng * Math.PI / 180) + rotation;
-      const x = R * Math.sin(phi) * Math.cos(theta);
+      const x = -R * Math.sin(phi) * Math.cos(theta);
       const y = R * Math.cos(phi);
       const z = R * Math.sin(phi) * Math.sin(theta);
       return { x: cx + x, y: cy - y, z };
@@ -1295,11 +1296,12 @@ export default function App() {
 
   useEffect(() => {
     if (!tvMode || paused || !data) return;
-    const iv = setInterval(() => {
+    const time = SLIDE_TIMES[currentSlide] || SLIDE_INTERVAL;
+    const iv = setTimeout(() => {
       setCurrentSlide(prev => (prev + 1) % SLIDE_NAMES.length);
-    }, SLIDE_INTERVAL);
-    return () => clearInterval(iv);
-  }, [tvMode, paused, data]);
+    }, time);
+    return () => clearTimeout(iv);
+  }, [tvMode, paused, data, currentSlide]);
 
   const goNext = () => setCurrentSlide(prev => (prev + 1) % SLIDE_NAMES.length);
   const goPrev = () => setCurrentSlide(prev => (prev - 1 + SLIDE_NAMES.length) % SLIDE_NAMES.length);
@@ -1358,7 +1360,7 @@ export default function App() {
             <Clock />
           </div>
         </div>
-        {!paused && (<div style={{ height: 3, background: C.panelBorder }}><div key={currentSlide} style={{ height: "100%", background: C.cyan, animation: `progress ${SLIDE_INTERVAL}ms linear`, width: "100%" }} /><style>{`@keyframes progress{from{width:0}to{width:100%}}`}</style></div>)}
+        {!paused && (<div style={{ height: 3, background: C.panelBorder }}><div key={currentSlide} style={{ height: "100%", background: C.cyan, animation: `progress ${SLIDE_TIMES[currentSlide] || SLIDE_INTERVAL}ms linear`, width: "100%" }} /><style>{`@keyframes progress{from{width:0}to{width:100%}}`}</style></div>)}
         <div key={currentSlide} style={{ flex: 1, display: "flex", flexDirection: "column", padding: "16px 0", animation: "fadeIn 0.5s ease" }}>{slides[currentSlide]}</div>
         <div style={{ padding: "6px 24px", borderTop: `1px solid ${C.panelBorder}`, display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10, color: C.dimText, fontFamily: FONT }}>
           <span>🔗 Google Sheets • Atualização a cada 1 min</span>
