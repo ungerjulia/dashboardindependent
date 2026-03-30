@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import * as recharts from "recharts";
 
 const { AreaChart, Area, BarChart, Bar, ComposedChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } = recharts;
@@ -126,6 +126,8 @@ function processData(lob, metasTrader, metaLinha, metaGlobal) {
     if (lk.includes("margem")) headerMap.margem = k;
     if (lk === "etd") headerMap.etd = k;
     if (lk === "lob") headerMap.lob = k;
+    if (lk === "tipo") headerMap.tipo = k;
+    if (lk === "pais" || lk === "país") headerMap.pais = k;
   });
 
   const rows = lob.map(r => {
@@ -144,6 +146,8 @@ function processData(lob, metasTrader, metaLinha, metaGlobal) {
       etdMonth: etd ? etd.getMonth() : -1,
       etdYear: etd ? etd.getFullYear() : -1,
       lob: parseMoney(r[headerMap.lob] || "0"),
+      tipo: (r[headerMap.tipo] || "").trim().toUpperCase(),
+      pais: (r[headerMap.pais] || "").trim(),
     };
   });
 
@@ -349,6 +353,17 @@ function processData(lob, metasTrader, metaLinha, metaGlobal) {
     produtosPorLinha[r.linha][r.produto].lob += r.lob;
   });
 
+  // Globe data — countries for current month
+  const paisData = {};
+  currentMonthRows.forEach(r => {
+    if (!r.pais) return;
+    const key = `${r.pais}|${r.tipo}`;
+    if (!paisData[key]) paisData[key] = { pais: r.pais, tipo: r.tipo, lob: 0, count: 0 };
+    paisData[key].lob += r.lob;
+    paisData[key].count += 1;
+  });
+  const globeData = Object.values(paisData).sort((a, b) => b.lob - a.lob);
+
   return {
     monthlyLOB: monthlyWithMeta,
     traderRanking,
@@ -362,6 +377,7 @@ function processData(lob, metasTrader, metaLinha, metaGlobal) {
     topMargens,
     bottomMargens,
     produtosPorLinha,
+    globeData,
     currentMonthName: MONTH_NAMES[currentMonth],
   };
 }
@@ -618,7 +634,7 @@ function SettingsPanel({ config, setConfig, onClose }) {
 // ══════════════════════════════════════════════════════════════
 //  CAROUSEL SLIDES
 // ══════════════════════════════════════════════════════════════
-const SLIDE_NAMES = ["Visão Geral", "Ranking de Traders", "Linhas de Negócio", "Status dos Processos", "Metas Globais", "Margens de Venda", "Produtos por Linha"];
+const SLIDE_NAMES = ["Visão Geral", "Ranking de Traders", "Linhas de Negócio", "Status dos Processos", "Metas Globais", "Margens de Venda", "Produtos por Linha", "Operações Globais"];
 const SLIDE_INTERVAL = 20000;
 
 function SlideOverview({ d }) {
@@ -878,6 +894,266 @@ function SlideMargens({ d }) {
 
 const PIE_COLORS = ["#00e5ff", "#2979ff", "#ffab00", "#00e676", "#ff6b6b", "#ab47bc", "#26a69a", "#ff7043", "#78909c", "#5c6bc0", "#8d6e63", "#ef5350"];
 
+// ══════════════════════════════════════════════════════════════
+//  GLOBE — Country coordinates (lat, lng)
+// ══════════════════════════════════════════════════════════════
+const COUNTRY_COORDS = {
+  "brasil": [-14.24, -51.93], "brazil": [-14.24, -51.93],
+  "chile": [-35.68, -71.54], "argentina": [-38.42, -63.62],
+  "uruguai": [-32.52, -55.77], "uruguay": [-32.52, -55.77],
+  "paraguai": [-23.44, -58.44], "paraguay": [-23.44, -58.44],
+  "peru": [-9.19, -75.02], "colombia": [4.57, -74.30],
+  "equador": [-1.83, -78.18], "ecuador": [-1.83, -78.18],
+  "venezuela": [6.42, -66.59], "bolivia": [-16.29, -63.59],
+  "estados unidos": [37.09, -95.71], "eua": [37.09, -95.71], "usa": [37.09, -95.71], "united states": [37.09, -95.71],
+  "canada": [56.13, -106.35], "canadá": [56.13, -106.35],
+  "mexico": [23.63, -102.55], "méxico": [23.63, -102.55],
+  "china": [35.86, 104.20], "japao": [36.20, 138.25], "japão": [36.20, 138.25], "japan": [36.20, 138.25],
+  "coreia do sul": [35.91, 127.77], "south korea": [35.91, 127.77],
+  "india": [20.59, 78.96], "índia": [20.59, 78.96],
+  "tailandia": [15.87, 100.99], "tailândia": [15.87, 100.99], "thailand": [15.87, 100.99],
+  "vietna": [14.06, 108.28], "vietnã": [14.06, 108.28], "vietnam": [14.06, 108.28],
+  "indonesia": [-0.79, 113.92], "indonésia": [-0.79, 113.92],
+  "malasia": [4.21, 101.98], "malásia": [4.21, 101.98], "malaysia": [4.21, 101.98],
+  "filipinas": [12.88, 121.77], "philippines": [12.88, 121.77],
+  "paquistao": [30.38, 69.35], "paquistão": [30.38, 69.35], "pakistan": [30.38, 69.35],
+  "bangladesh": [23.68, 90.36],
+  "alemanha": [51.17, 10.45], "germany": [51.17, 10.45],
+  "franca": [46.23, 2.21], "frança": [46.23, 2.21], "france": [46.23, 2.21],
+  "italia": [41.87, 12.57], "itália": [41.87, 12.57], "italy": [41.87, 12.57],
+  "espanha": [40.46, -3.75], "spain": [40.46, -3.75],
+  "portugal": [39.40, -8.22], "reino unido": [55.38, -3.44], "uk": [55.38, -3.44],
+  "holanda": [52.13, 5.29], "netherlands": [52.13, 5.29], "paises baixos": [52.13, 5.29],
+  "belgica": [50.50, 4.47], "bélgica": [50.50, 4.47],
+  "suica": [46.82, 8.23], "suíça": [46.82, 8.23],
+  "russia": [61.52, 105.32], "rússia": [61.52, 105.32],
+  "turquia": [38.96, 35.24], "turkey": [38.96, 35.24],
+  "emirados arabes": [23.42, 53.85], "uae": [23.42, 53.85], "dubai": [25.20, 55.27],
+  "arabia saudita": [23.89, 45.08], "arábia saudita": [23.89, 45.08], "saudi arabia": [23.89, 45.08],
+  "africa do sul": [-30.56, 22.94], "south africa": [-30.56, 22.94],
+  "egito": [26.82, 30.80], "egypt": [26.82, 30.80],
+  "nigeria": [9.08, 8.68], "marrocos": [31.79, -7.09], "morocco": [31.79, -7.09],
+  "australia": [-25.27, 133.78], "nova zelandia": [-40.90, 174.89], "new zealand": [-40.90, 174.89],
+  "taiwan": [23.70, 120.96], "hong kong": [22.40, 114.11], "singapura": [1.35, 103.82], "singapore": [1.35, 103.82],
+  "noruega": [60.47, 8.47], "norway": [60.47, 8.47], "suecia": [60.13, 18.64], "sweden": [60.13, 18.64],
+  "dinamarca": [56.26, 9.50], "denmark": [56.26, 9.50], "finlandia": [61.92, 25.75], "finland": [61.92, 25.75],
+  "panama": [8.54, -80.78], "panamá": [8.54, -80.78], "costa rica": [9.75, -83.75],
+  "republica dominicana": [18.74, -70.16], "cuba": [21.52, -77.78], "jamaica": [18.11, -77.30],
+  "guatemala": [15.78, -90.23], "honduras": [15.20, -86.24], "el salvador": [13.79, -88.90],
+  "nicaragua": [12.87, -85.21], "porto rico": [18.22, -66.59], "puerto rico": [18.22, -66.59],
+  "trinidad": [10.69, -61.22], "trinidad e tobago": [10.69, -61.22],
+  "gana": [7.95, -1.02], "ghana": [7.95, -1.02], "quenia": [-0.02, 37.91], "kenya": [-0.02, 37.91],
+  "angola": [-11.20, 17.87], "mocambique": [-18.67, 35.53], "moçambique": [-18.67, 35.53],
+};
+
+function getCountryCoords(pais) {
+  const normalized = pais.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  if (COUNTRY_COORDS[normalized]) return COUNTRY_COORDS[normalized];
+  for (const [k, v] of Object.entries(COUNTRY_COORDS)) {
+    if (normalized.includes(k) || k.includes(normalized)) return v;
+  }
+  return null;
+}
+
+function SlideGlobe({ d }) {
+  const canvasRef = useRef(null);
+  const frameRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const W = canvas.width, H = canvas.height;
+    const cx = W * 0.5, cy = H * 0.5;
+    const R = Math.min(W, H) * 0.34;
+    let rotation = -0.5;
+
+    function latLngTo3D(lat, lng, r) {
+      const phi = (90 - lat) * Math.PI / 180;
+      const theta = (lng + rotation * 180 / Math.PI) * Math.PI / 180;
+      const x = r * Math.sin(phi) * Math.cos(theta);
+      const y = r * Math.cos(phi);
+      const z = r * Math.sin(phi) * Math.sin(theta);
+      return { x: cx + x, y: cy - y, z };
+    }
+
+    // Simple continent outlines (simplified points)
+    const continents = [
+      // South America
+      [[-5,-80],[-15,-75],[-23,-70],[-35,-72],[-55,-70],[-55,-65],[-40,-63],[-33,-58],[-23,-43],[-12,-37],[-3,-40],[5,-60],[10,-72],[5,-77],[-5,-80]],
+      // North America
+      [[10,-80],[15,-90],[20,-105],[30,-115],[35,-120],[48,-125],[55,-130],[60,-140],[65,-165],[70,-160],[72,-155],[70,-140],[60,-135],[55,-125],[48,-120],[40,-75],[35,-80],[30,-82],[25,-80],[20,-88],[15,-85],[10,-80]],
+      // Africa
+      [[-35,18],[-25,30],[-15,40],[-5,42],[5,45],[12,50],[15,40],[30,32],[35,10],[37,-5],[35,-10],[30,-15],[15,-17],[5,-10],[0,10],[-5,12],[-15,15],[-25,15],[-35,18]],
+      // Europe
+      [[36,-5],[38,0],[43,5],[46,2],[48,7],[52,5],[55,10],[58,12],[62,15],[65,25],[60,30],[55,28],[50,30],[45,25],[40,28],[36,25],[38,20],[35,15],[36,-5]],
+      // Asia
+      [[30,50],[35,55],[40,60],[45,65],[50,70],[55,75],[60,80],[65,90],[60,100],[55,110],[50,120],[45,130],[40,135],[35,140],[30,130],[25,120],[20,110],[15,100],[10,105],[5,100],[0,105],[-5,115],[-8,120],[5,100],[10,80],[15,75],[20,70],[25,60],[30,50]],
+      // Australia
+      [[-15,130],[-20,115],[-25,115],[-30,118],[-35,120],[-38,145],[-35,150],[-28,155],[-20,148],[-12,142],[-12,135],[-15,130]],
+    ];
+
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+
+      // Glow
+      const glow = ctx.createRadialGradient(cx, cy, R * 0.9, cx, cy, R * 1.3);
+      glow.addColorStop(0, "rgba(41,121,255,0.08)");
+      glow.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = glow;
+      ctx.fillRect(0, 0, W, H);
+
+      // Globe sphere
+      ctx.beginPath();
+      ctx.arc(cx, cy, R, 0, Math.PI * 2);
+      ctx.fillStyle = "#0d1520";
+      ctx.fill();
+      ctx.strokeStyle = "#1e3a5f";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Grid lines
+      ctx.strokeStyle = "rgba(30,58,95,0.3)";
+      ctx.lineWidth = 0.5;
+      for (let lat = -60; lat <= 60; lat += 30) {
+        ctx.beginPath();
+        for (let lng = -180; lng <= 180; lng += 3) {
+          const p = latLngTo3D(lat, lng, R);
+          if (p.z > 0) { if (lng === -180 || latLngTo3D(lat, lng - 3, R).z <= 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); }
+        }
+        ctx.stroke();
+      }
+      for (let lng = -180; lng < 180; lng += 30) {
+        ctx.beginPath();
+        for (let lat = -90; lat <= 90; lat += 3) {
+          const p = latLngTo3D(lat, lng, R);
+          if (p.z > 0) { if (lat === -90 || latLngTo3D(lat - 3, lng, R).z <= 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); }
+        }
+        ctx.stroke();
+      }
+
+      // Continents
+      ctx.fillStyle = "rgba(30,80,120,0.25)";
+      ctx.strokeStyle = "rgba(41,121,255,0.4)";
+      ctx.lineWidth = 1;
+      continents.forEach(pts => {
+        ctx.beginPath();
+        let started = false;
+        pts.forEach(([lat, lng]) => {
+          const p = latLngTo3D(lat, lng, R);
+          if (p.z > 0) { if (!started) { ctx.moveTo(p.x, p.y); started = true; } else ctx.lineTo(p.x, p.y); }
+        });
+        if (started) { ctx.fill(); ctx.stroke(); }
+      });
+
+      // Brazil marker
+      const br = latLngTo3D(-14.24, -51.93, R);
+      if (br.z > 0) {
+        ctx.beginPath();
+        ctx.arc(br.x, br.y, 6, 0, Math.PI * 2);
+        ctx.fillStyle = C.green;
+        ctx.fill();
+        ctx.shadowColor = C.green;
+        ctx.shadowBlur = 12;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.font = `bold 11px ${FONT}`;
+        ctx.fillStyle = C.green;
+        ctx.textAlign = "center";
+        ctx.fillText("BRASIL", br.x, br.y - 12);
+      }
+
+      // Country markers and arcs
+      d.globeData.forEach(item => {
+        const coords = getCountryCoords(item.pais);
+        if (!coords) return;
+        const p = latLngTo3D(coords[0], coords[1], R);
+        if (p.z <= 0) return;
+
+        const isImpo = item.tipo === "IMPO";
+        const color = isImpo ? "#ffffff" : C.blue;
+
+        // Arc from Brazil
+        if (br.z > 0) {
+          ctx.beginPath();
+          ctx.strokeStyle = `${color}40`;
+          ctx.lineWidth = 1.5;
+          const midX = (br.x + p.x) / 2;
+          const midY = Math.min(br.y, p.y) - 40;
+          ctx.moveTo(br.x, br.y);
+          ctx.quadraticCurveTo(midX, midY, p.x, p.y);
+          ctx.stroke();
+        }
+
+        // Marker
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 4 + Math.min(item.count * 1.5, 8), 0, Math.PI * 2);
+        ctx.fillStyle = `${color}60`;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+
+        // Label
+        ctx.font = `bold 9px ${FONT}`;
+        ctx.fillStyle = color;
+        ctx.textAlign = "center";
+        ctx.fillText(item.pais, p.x, p.y - 10);
+      });
+
+      rotation += 0.003;
+      frameRef.current = requestAnimationFrame(draw);
+    }
+
+    draw();
+    return () => { if (frameRef.current) cancelAnimationFrame(frameRef.current); };
+  }, [d.globeData]);
+
+  const impoData = d.globeData.filter(g => g.tipo === "IMPO");
+  const expoData = d.globeData.filter(g => g.tipo === "EXPO");
+
+  return (
+    <div style={{ flex: 1, padding: "0 20px", display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>🌍 OPERAÇÕES GLOBAIS — {d.currentMonthName.toUpperCase()}</div>
+      <div style={{ display: "flex", flex: 1, gap: 16 }}>
+        {/* Left legend — IMPO */}
+        <div style={{ width: 200, display: "flex", flexDirection: "column", gap: 6, justifyContent: "center" }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: "#fff", fontFamily: FONT, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ width: 10, height: 10, background: "#fff", borderRadius: "50%", display: "inline-block" }} /> IMPORTAÇÃO
+          </div>
+          {impoData.map(g => (
+            <div key={g.pais} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#fff", fontFamily: FONT }}>
+              <span>{g.pais}</span>
+              <span style={{ fontWeight: 700 }}>{fmtUSD(g.lob)} ({g.count})</span>
+            </div>
+          ))}
+          {impoData.length === 0 && <div style={{ fontSize: 11, color: C.muted }}>Sem dados</div>}
+        </div>
+
+        {/* Globe */}
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <canvas ref={canvasRef} width={600} height={500} style={{ maxWidth: "100%", maxHeight: "100%" }} />
+        </div>
+
+        {/* Right legend — EXPO */}
+        <div style={{ width: 200, display: "flex", flexDirection: "column", gap: 6, justifyContent: "center" }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: C.blue, fontFamily: FONT, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ width: 10, height: 10, background: C.blue, borderRadius: "50%", display: "inline-block" }} /> EXPORTAÇÃO
+          </div>
+          {expoData.map(g => (
+            <div key={g.pais} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.blue, fontFamily: FONT }}>
+              <span>{g.pais}</span>
+              <span style={{ fontWeight: 700 }}>{fmtUSD(g.lob)} ({g.count})</span>
+            </div>
+          ))}
+          {expoData.length === 0 && <div style={{ fontSize: 11, color: C.muted }}>Sem dados</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SlideProdutos({ d }) {
   const linhas = Object.entries(d.produtosPorLinha);
   const linhaColors = { "Import": C.blue, "Feed Meal": C.cyan, "Meat": "#ff6b6b" };
@@ -1009,7 +1285,7 @@ export default function App() {
 
   // ── TV MODE ──
   if (tvMode) {
-    const slides = [<SlideOverview d={d} />, <SlideTraders d={d} />, <SlideLinhas d={d} />, <SlideStatus d={d} />, <SlideGauges d={d} />, <SlideMargens d={d} />, <SlideProdutos d={d} />];
+    const slides = [<SlideOverview d={d} />, <SlideTraders d={d} />, <SlideLinhas d={d} />, <SlideStatus d={d} />, <SlideGauges d={d} />, <SlideMargens d={d} />, <SlideProdutos d={d} />, <SlideGlobe d={d} />];
     return (
       <div style={{ background: C.bg, minHeight: "100vh", color: C.white, fontFamily: FONT, display: "flex", flexDirection: "column" }}>
         <style>{`@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.8)}}@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}*{box-sizing:border-box;margin:0;padding:0}`}</style>
