@@ -957,18 +957,21 @@ function getCountryCoords(pais) {
 }
 function SlideGlobe({ d }) {
   const mountRef = useRef(null);
-  const cleanupRef = useRef(null);
 
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount) return;
-    let cancelled = false;
 
-    const script = document.createElement("script");
-    script.src = "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js";
-    script.onload = () => {
-      if (cancelled) return;
+    let animId = null;
+    let renderer = null;
+    let destroyed = false;
+
+    // Check if Three.js already loaded
+    function init() {
+      if (destroyed) return;
       const THREE = window.THREE;
+      if (!THREE) return;
+
       const W = mount.clientWidth || 700;
       const H = mount.clientHeight || 500;
 
@@ -976,114 +979,126 @@ function SlideGlobe({ d }) {
       const camera = new THREE.PerspectiveCamera(45, W / H, 0.1, 1000);
       camera.position.z = 2.6;
 
-      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setSize(W, H);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.setClearColor(0x000000, 0);
+      mount.innerHTML = "";
       mount.appendChild(renderer.domElement);
 
+      // Globe with Earth texture
+      const textureLoader = new THREE.TextureLoader();
+      const earthTex = textureLoader.load("https://unpkg.com/three-globe@2.31.1/example/img/earth-blue-marble.jpg");
       const globe = new THREE.Mesh(
         new THREE.SphereGeometry(1, 64, 64),
-        new THREE.MeshPhongMaterial({
-          map: new THREE.TextureLoader().load("https://unpkg.com/three-globe@2.31.1/example/img/earth-blue-marble.jpg"),
-          bumpScale: 0.02,
-          specular: new THREE.Color(0x222222),
-          shininess: 10,
-        })
+        new THREE.MeshPhongMaterial({ map: earthTex, bumpScale: 0.02, specular: new THREE.Color(0x222222), shininess: 10 })
       );
       scene.add(globe);
 
-      const atmos = new THREE.Mesh(
+      // Atmosphere
+      scene.add(new THREE.Mesh(
         new THREE.SphereGeometry(1.03, 64, 64),
         new THREE.MeshBasicMaterial({ color: 0x2979ff, transparent: true, opacity: 0.07, side: THREE.BackSide })
-      );
-      scene.add(atmos);
+      ));
 
+      // Lights
       scene.add(new THREE.AmbientLight(0x606060, 1.5));
       const dLight = new THREE.DirectionalLight(0xffffff, 1);
       dLight.position.set(5, 3, 5);
       scene.add(dLight);
 
+      // Lat/Lng to 3D
       function ll2v(lat, lng, r) {
         const phi = (90 - lat) * Math.PI / 180;
         const theta = (lng + 180) * Math.PI / 180;
         return new THREE.Vector3(-r * Math.sin(phi) * Math.cos(theta), r * Math.cos(phi), r * Math.sin(phi) * Math.sin(theta));
       }
 
+      // Marker group (rotates with globe)
       const group = new THREE.Group();
 
-      // Brazil
+      // Brazil marker
       const brPos = ll2v(-14.24, -51.93, 1.015);
-      const brM = new THREE.Mesh(new THREE.SphereGeometry(0.022, 16, 16), new THREE.MeshBasicMaterial({ color: 0x00e676 }));
-      brM.position.copy(brPos);
-      group.add(brM);
-      const brG = new THREE.Mesh(new THREE.SphereGeometry(0.045, 16, 16), new THREE.MeshBasicMaterial({ color: 0x00e676, transparent: true, opacity: 0.25 }));
-      brG.position.copy(brPos);
-      group.add(brG);
+      const brMarker = new THREE.Mesh(new THREE.SphereGeometry(0.022, 16, 16), new THREE.MeshBasicMaterial({ color: 0x00e676 }));
+      brMarker.position.copy(brPos);
+      group.add(brMarker);
+      const brGlow = new THREE.Mesh(new THREE.SphereGeometry(0.045, 16, 16), new THREE.MeshBasicMaterial({ color: 0x00e676, transparent: true, opacity: 0.25 }));
+      brGlow.position.copy(brPos);
+      group.add(brGlow);
 
-      d.globeData.forEach(item => {
-        const coords = getCountryCoords(item.pais);
+      // Country markers and arcs
+      d.globeData.forEach(function(item) {
+        var coords = getCountryCoords(item.pais);
         if (!coords) return;
-        const isImpo = item.tipo === "IMPO";
-        const color = isImpo ? 0xffffff : 0x2979ff;
-        const pos = ll2v(coords[0], coords[1], 1.015);
-        const sz = 0.014 + Math.min(item.count * 0.004, 0.016);
+        var isImpo = item.tipo === "IMPO";
+        var color = isImpo ? 0xffffff : 0x2979ff;
+        var pos = ll2v(coords[0], coords[1], 1.015);
+        var sz = 0.014 + Math.min(item.count * 0.004, 0.016);
 
-        group.add(new THREE.Mesh(new THREE.SphereGeometry(sz, 12, 12), new THREE.MeshBasicMaterial({ color })).clone().translateX(pos.x).translateY(pos.y).translateZ(pos.z) ? (() => { const m = new THREE.Mesh(new THREE.SphereGeometry(sz, 12, 12), new THREE.MeshBasicMaterial({ color })); m.position.copy(pos); return m; })() : null);
-
-        // Simpler: just add marker
-        const marker = new THREE.Mesh(new THREE.SphereGeometry(sz, 12, 12), new THREE.MeshBasicMaterial({ color }));
+        // Marker
+        var marker = new THREE.Mesh(new THREE.SphereGeometry(sz, 12, 12), new THREE.MeshBasicMaterial({ color: color }));
         marker.position.copy(pos);
         group.add(marker);
 
-        const glow = new THREE.Mesh(new THREE.SphereGeometry(sz * 2, 12, 12), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.2 }));
+        // Glow
+        var glow = new THREE.Mesh(new THREE.SphereGeometry(sz * 2.5, 12, 12), new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: 0.15 }));
         glow.position.copy(pos);
         group.add(glow);
 
-        // Arc
-        const mid = new THREE.Vector3().addVectors(brPos, pos).multiplyScalar(0.5);
-        const dist = brPos.distanceTo(pos);
+        // Arc from Brazil
+        var mid = new THREE.Vector3().addVectors(brPos, pos).multiplyScalar(0.5);
+        var dist = brPos.distanceTo(pos);
         mid.normalize().multiplyScalar(1 + dist * 0.35);
-        const curve = new THREE.QuadraticBezierCurve3(brPos, mid, pos);
-        const arcLine = new THREE.Line(
+        var curve = new THREE.QuadraticBezierCurve3(brPos, mid, pos);
+        var arcLine = new THREE.Line(
           new THREE.BufferGeometry().setFromPoints(curve.getPoints(40)),
-          new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.35 })
+          new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: 0.3 })
         );
         group.add(arcLine);
       });
 
       scene.add(group);
+
+      // Start facing Americas
       globe.rotation.y = -1.5;
       group.rotation.y = -1.5;
 
-      let animId;
+      // Animation loop
       function animate() {
+        if (destroyed) return;
         globe.rotation.y += 0.0015;
         group.rotation.y += 0.0015;
         renderer.render(scene, camera);
         animId = requestAnimationFrame(animate);
       }
       animate();
+    }
 
-      cleanupRef.current = () => {
-        cancelAnimationFrame(animId);
-        if (mount.contains(renderer.domElement)) mount.removeChild(renderer.domElement);
+    // Load Three.js if not already loaded
+    if (window.THREE) {
+      init();
+    } else {
+      var script = document.createElement("script");
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js";
+      script.onload = init;
+      document.head.appendChild(script);
+    }
+
+    return function() {
+      destroyed = true;
+      if (animId) cancelAnimationFrame(animId);
+      if (renderer) {
         renderer.dispose();
-        geometry && geometry.dispose();
-      };
-    };
-    document.head.appendChild(script);
-
-    return () => {
-      cancelled = true;
-      if (cleanupRef.current) cleanupRef.current();
+        renderer.forceContextLoss();
+      }
+      if (mount) mount.innerHTML = "";
     };
   }, [d.globeData]);
 
-  const impoData = d.globeData.filter(g => g.tipo === "IMPO");
-  const expoData = d.globeData.filter(g => g.tipo === "EXPO");
-  const totalImpo = impoData.reduce((s, g) => s + g.lob, 0);
-  const totalExpo = expoData.reduce((s, g) => s + g.lob, 0);
+  var impoData = d.globeData.filter(function(g) { return g.tipo === "IMPO"; });
+  var expoData = d.globeData.filter(function(g) { return g.tipo === "EXPO"; });
+  var totalImpo = impoData.reduce(function(s, g) { return s + g.lob; }, 0);
+  var totalExpo = expoData.reduce(function(s, g) { return s + g.lob; }, 0);
 
   return (
     <div style={{ flex: 1, padding: "0 20px", display: "flex", flexDirection: "column", gap: 4 }}>
@@ -1093,26 +1108,26 @@ function SlideGlobe({ d }) {
           <div style={{ fontSize: 16, fontWeight: 800, color: "#fff", fontFamily: FONT, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ width: 12, height: 12, background: "#fff", borderRadius: "50%", display: "inline-block", boxShadow: "0 0 6px rgba(255,255,255,0.5)" }} /> IMPORTAÇÃO
           </div>
-          {impoData.length > 0 ? impoData.map(g => (
-            <div key={g.pais} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#fff", fontFamily: FONT, padding: "4px 0", borderBottom: `1px solid ${C.panelBorder}` }}>
+          {impoData.length > 0 ? impoData.map(function(g) { return (
+            <div key={g.pais} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#fff", fontFamily: FONT, padding: "4px 0", borderBottom: "1px solid " + C.panelBorder }}>
               <span style={{ fontWeight: 600 }}>{g.pais}</span>
               <span style={{ fontWeight: 800 }}>{fmtUSD(g.lob)} <span style={{ color: C.muted, fontWeight: 400 }}>({g.count})</span></span>
             </div>
-          )) : <div style={{ fontSize: 12, color: C.muted }}>Sem dados no mês</div>}
-          {impoData.length > 0 && <div style={{ fontSize: 14, fontWeight: 800, color: "#fff", fontFamily: FONT, marginTop: 4, paddingTop: 6, borderTop: `2px solid ${C.panelBorder}` }}>Total: {fmtUSD(totalImpo)}</div>}
+          ); }) : <div style={{ fontSize: 12, color: C.muted }}>Sem dados no mês</div>}
+          {impoData.length > 0 && <div style={{ fontSize: 14, fontWeight: 800, color: "#fff", fontFamily: FONT, marginTop: 4, paddingTop: 6, borderTop: "2px solid " + C.panelBorder }}>Total: {fmtUSD(totalImpo)}</div>}
         </div>
         <div ref={mountRef} style={{ flex: 1, minHeight: 450 }} />
         <div style={{ width: 220, display: "flex", flexDirection: "column", gap: 6, justifyContent: "center", padding: "0 8px" }}>
           <div style={{ fontSize: 16, fontWeight: 800, color: C.blue, fontFamily: FONT, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ width: 12, height: 12, background: C.blue, borderRadius: "50%", display: "inline-block", boxShadow: `0 0 6px ${C.blue}80` }} /> EXPORTAÇÃO
+            <span style={{ width: 12, height: 12, background: C.blue, borderRadius: "50%", display: "inline-block", boxShadow: "0 0 6px " + C.blue + "80" }} /> EXPORTAÇÃO
           </div>
-          {expoData.length > 0 ? expoData.map(g => (
-            <div key={g.pais} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.blue, fontFamily: FONT, padding: "4px 0", borderBottom: `1px solid ${C.panelBorder}` }}>
+          {expoData.length > 0 ? expoData.map(function(g) { return (
+            <div key={g.pais} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.blue, fontFamily: FONT, padding: "4px 0", borderBottom: "1px solid " + C.panelBorder }}>
               <span style={{ fontWeight: 600 }}>{g.pais}</span>
               <span style={{ fontWeight: 800 }}>{fmtUSD(g.lob)} <span style={{ color: C.muted, fontWeight: 400 }}>({g.count})</span></span>
             </div>
-          )) : <div style={{ fontSize: 12, color: C.muted }}>Sem dados no mês</div>}
-          {expoData.length > 0 && <div style={{ fontSize: 14, fontWeight: 800, color: C.blue, fontFamily: FONT, marginTop: 4, paddingTop: 6, borderTop: `2px solid ${C.panelBorder}` }}>Total: {fmtUSD(totalExpo)}</div>}
+          ); }) : <div style={{ fontSize: 12, color: C.muted }}>Sem dados no mês</div>}
+          {expoData.length > 0 && <div style={{ fontSize: 14, fontWeight: 800, color: C.blue, fontFamily: FONT, marginTop: 4, paddingTop: 6, borderTop: "2px solid " + C.panelBorder }}>Total: {fmtUSD(totalExpo)}</div>}
         </div>
       </div>
     </div>
