@@ -104,7 +104,7 @@ function fmtUSD(v) {
 // ══════════════════════════════════════════════════════════════
 //  DATA PROCESSING
 // ══════════════════════════════════════════════════════════════
-function processData(lob, metasTrader, metaLinha, metaGlobal) {
+function processData(lob, metasTrader, metaLinha, metaGlobal, operacao) {
   const now = new Date();
   const currentMonth = now.getMonth();
   const currentYear = now.getFullYear();
@@ -357,12 +357,83 @@ function processData(lob, metasTrader, metaLinha, metaGlobal) {
   const paisData = {};
   currentMonthRows.forEach(r => {
     if (!r.pais) return;
+    const paisNorm = r.pais.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+    if (paisNorm === "brasil" || paisNorm === "brazil") return;
     const key = `${r.pais}|${r.tipo}`;
     if (!paisData[key]) paisData[key] = { pais: r.pais, tipo: r.tipo, lob: 0, count: 0 };
     paisData[key].lob += r.lob;
     paisData[key].count += 1;
   });
   const globeData = Object.values(paisData).sort((a, b) => b.lob - a.lob);
+
+  // ── Operational Analysis ──
+  // Period: 26 of prev month to 25 of current month
+  const opStart = new Date(currentYear, currentMonth - 1, 26);
+  const opEnd = new Date(currentYear, currentMonth, 25);
+
+  // Parse operação rows
+  const opRows = (operacao || []).map(r => {
+    const keys = Object.keys(r);
+    const findK = (s) => keys.find(k => k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[_\s]/g, "").includes(s)) || "";
+    return {
+      processo: r[findK("numero")] || r[findK("processo")] || "",
+      responsavel: r[findK("responsavel")] || "",
+      trader: r[findK("trader")] || "",
+      etdInicial: parseETD(r[findK("etdinicial")] || r[findK("inicial")] || ""),
+      etd: parseETD(r[findK("etd")] && !keys.find(k => k.toLowerCase().includes("inicial") && k === findK("etd")) ? r[keys.find(k => { const lk = k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[_\s]/g, ""); return lk === "etd"; }) || ""] || "" : ""),
+      envioDoc: parseETD(r[findK("envio")] || r[findK("documento")] || ""),
+    };
+  });
+
+  // Better ETD parsing: find exact columns
+  const opParsed = (operacao || []).map(r => {
+    const keys = Object.keys(r);
+    const processoKey = keys.find(k => k.toLowerCase().replace(/[_\s]/g, "").includes("numero")) || keys[0];
+    const responsavelKey = keys.find(k => k.toLowerCase().replace(/[_\s]/g, "").includes("responsavel")) || keys[1];
+    const traderKey = keys.find(k => k.toLowerCase() === "trader") || keys[2];
+    const etdInicialKey = keys.find(k => k.toLowerCase().replace(/[_\s]/g, "").includes("etdinicial") || k.toLowerCase().replace(/[_\s]/g, "").includes("inicial")) || keys[3];
+    const etdKey = keys.find(k => { const lk = k.toLowerCase().replace(/[_\s]/g, ""); return lk === "etd"; }) || keys[4];
+    const envioKey = keys.find(k => k.toLowerCase().replace(/[_\s]/g, "").includes("envio") || k.toLowerCase().replace(/[_\s]/g, "").includes("documento")) || keys[5];
+    return {
+      processo: (r[processoKey] || "").trim(),
+      responsavel: (r[responsavelKey] || "").trim(),
+      trader: (r[traderKey] || "").trim(),
+      etdInicial: parseETD(r[etdInicialKey] || ""),
+      etd: parseETD(r[etdKey] || ""),
+      envioDoc: parseETD(r[envioKey] || ""),
+    };
+  });
+
+  // Filter by operational period (ETD between 26/prev to 25/current)
+  const opFiltered = opParsed.filter(r => r.etd && r.etd >= opStart && r.etd <= opEnd);
+
+  // Analysis 1: ETD Pontualidade (ETD inicial vs ETD real)
+  const etdAnalysis = { noPrazo: 0, antecipado: 0, atrasado: 0, semDados: 0, total: opFiltered.length };
+  const etdDetails = [];
+  opFiltered.forEach(r => {
+    if (!r.etdInicial || !r.etd) { etdAnalysis.semDados++; return; }
+    const diffDays = Math.round((r.etd - r.etdInicial) / (1000 * 60 * 60 * 24));
+    if (diffDays === 0) { etdAnalysis.noPrazo++; etdDetails.push({ ...r, status: "No prazo", diff: 0 }); }
+    else if (diffDays < 0) { etdAnalysis.antecipado++; etdDetails.push({ ...r, status: "Antecipado", diff: diffDays }); }
+    else { etdAnalysis.atrasado++; etdDetails.push({ ...r, status: "Atrasado", diff: diffDays }); }
+  });
+
+  // Analysis 2: Envio de Documentos (ETD vs Envio, prazo 15 dias)
+  const docAnalysis = { noPrazo: 0, antecipado: 0, atrasado: 0, semDados: 0, total: opFiltered.length };
+  opFiltered.forEach(r => {
+    if (!r.etd || !r.envioDoc) { docAnalysis.semDados++; return; }
+    const diffDays = Math.round((r.envioDoc - r.etd) / (1000 * 60 * 60 * 24));
+    if (diffDays <= 15 && diffDays >= 0) docAnalysis.noPrazo++;
+    else if (diffDays < 0) docAnalysis.antecipado++;
+    else docAnalysis.atrasado++;
+  });
+
+  const operationalData = {
+    period: `${opStart.getDate().toString().padStart(2,"0")}/${(opStart.getMonth()+1).toString().padStart(2,"0")} a ${opEnd.getDate().toString().padStart(2,"0")}/${(opEnd.getMonth()+1).toString().padStart(2,"0")}`,
+    etdAnalysis,
+    docAnalysis,
+    totalProcessos: opFiltered.length,
+  };
 
   return {
     monthlyLOB: monthlyWithMeta,
@@ -378,6 +449,7 @@ function processData(lob, metasTrader, metaLinha, metaGlobal) {
     bottomMargens,
     produtosPorLinha,
     globeData,
+    operationalData,
     currentMonthName: MONTH_NAMES[currentMonth],
   };
 }
@@ -584,10 +656,14 @@ function LoginScreen({ onLogin }) {
 // ══════════════════════════════════════════════════════════════
 function SettingsPanel({ config, setConfig, onClose }) {
   const toggle = (key) => setConfig(prev => ({ ...prev, [key]: !prev[key] }));
+  const toggleSlide = (idx) => setConfig(prev => {
+    const newSlides = { ...prev.tvSlides };
+    newSlides[idx] = !newSlides[idx];
+    return { ...prev, tvSlides: newSlides };
+  });
   const sections = [
     { key: "showKPIs", label: "KPIs Principais" },
     { key: "showChart", label: "Gráfico LOB Mensal" },
-    { key: "showGauges", label: "Gauges de Meta" },
     { key: "showTraders", label: "Ranking de Traders" },
     { key: "showLinhas", label: "Linhas de Negócio" },
     { key: "showStatus", label: "Status dos Processos" },
@@ -596,15 +672,16 @@ function SettingsPanel({ config, setConfig, onClose }) {
     { key: "viewMode", value: "mes", label: "Visão Mensal" },
     { key: "viewMode", value: "ano", label: "Visão Anual" },
   ];
+  const slideIcons = ["📊", "🏆", "🏷️", "📦", "🎯", "📈", "🥧", "🌍", "⚙️"];
 
   return (
-    <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: 320, background: C.panel, borderLeft: `1px solid ${C.panelBorder}`, zIndex: 1000, padding: "20px", display: "flex", flexDirection: "column", gap: 16, overflowY: "auto", boxShadow: "-4px 0 20px rgba(0,0,0,0.5)" }}>
+    <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: 340, background: C.panel, borderLeft: `1px solid ${C.panelBorder}`, zIndex: 1000, padding: "20px", display: "flex", flexDirection: "column", gap: 14, overflowY: "auto", boxShadow: "-4px 0 20px rgba(0,0,0,0.5)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span style={{ fontSize: 16, fontWeight: 800, color: C.white, fontFamily: FONT }}>Configurações</span>
         <button onClick={onClose} style={{ background: "none", border: "none", color: C.muted, fontSize: 20, cursor: "pointer" }}>✕</button>
       </div>
 
-      <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, letterSpacing: 1, textTransform: "uppercase", fontFamily: FONT }}>Seções Visíveis</div>
+      <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, letterSpacing: 1, textTransform: "uppercase", fontFamily: FONT }}>Seções do Dashboard</div>
       {sections.map(s => (
         <label key={s.key} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
           <div onClick={() => toggle(s.key)} style={{ width: 40, height: 22, borderRadius: 11, background: config[s.key] ? C.green : C.panelBorder, position: "relative", transition: "background 0.3s", cursor: "pointer" }}>
@@ -624,6 +701,18 @@ function SettingsPanel({ config, setConfig, onClose }) {
         </label>
       ))}
 
+      <div style={{ fontSize: 11, fontWeight: 700, color: C.cyan, letterSpacing: 1, textTransform: "uppercase", fontFamily: FONT, marginTop: 12 }}>📺 Slides do Modo TV</div>
+      <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT, marginBottom: 4 }}>Selecione quais visões aparecem no carrossel</div>
+      {SLIDE_NAMES.map((name, i) => (
+        <label key={i} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }} onClick={() => toggleSlide(i)}>
+          <div style={{ width: 22, height: 22, borderRadius: 4, border: `2px solid ${config.tvSlides[i] ? C.cyan : C.panelBorder}`, background: config.tvSlides[i] ? `${C.cyan}20` : "transparent", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s" }}>
+            {config.tvSlides[i] && <span style={{ color: C.cyan, fontSize: 14, fontWeight: 900 }}>✓</span>}
+          </div>
+          <span style={{ fontSize: 13 }}>{slideIcons[i] || "📄"}</span>
+          <span style={{ fontSize: 13, color: config.tvSlides[i] ? "#fff" : C.muted, fontFamily: FONT }}>{name}</span>
+        </label>
+      ))}
+
       <div style={{ marginTop: "auto", paddingTop: 16, borderTop: `1px solid ${C.panelBorder}`, fontSize: 10, color: C.dimText, fontFamily: FONT }}>
         Dados atualizam a cada 1 minuto<br/>Planilha: Dashboard IB
       </div>
@@ -634,7 +723,7 @@ function SettingsPanel({ config, setConfig, onClose }) {
 // ══════════════════════════════════════════════════════════════
 //  CAROUSEL SLIDES
 // ══════════════════════════════════════════════════════════════
-const SLIDE_NAMES = ["Visão Geral", "Ranking de Traders", "Linhas de Negócio", "Status dos Processos", "Metas Globais", "Margens de Venda", "Produtos por Linha", "Operações Globais"];
+const SLIDE_NAMES = ["Visão Geral", "Ranking de Traders", "Linhas de Negócio", "Status dos Processos", "Metas Globais", "Margens de Venda", "Produtos por Linha", "Operações Globais", "Análise Operacional"];
 const SLIDE_INTERVAL = 20000;
 const SLIDE_TIMES = { 7: 30000 }; // Slide 7 (Globe) = 30s, others = 20s
 
@@ -955,6 +1044,75 @@ function getCountryCoords(pais) {
   }
   return null;
 }
+function SlideOperacional({ d }) {
+  const op = d.operationalData;
+  const etd = op.etdAnalysis;
+  const doc = op.docAnalysis;
+
+  const DonutChart = ({ data, title, colors, labels }) => {
+    const total = data.reduce((s, v) => s + v, 0);
+    if (total === 0) return <div style={{ textAlign: "center", color: C.muted, fontSize: 14 }}>Sem dados</div>;
+    const pieData = data.map((v, i) => ({ name: labels[i], value: v, pct: ((v / total) * 100).toFixed(1) })).filter(d => d.value > 0);
+
+    return (
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+        <div style={{ fontSize: 20, fontWeight: 800, color: "#fff", fontFamily: FONT, textAlign: "center" }}>{title}</div>
+        <div style={{ fontSize: 14, color: C.muted, fontFamily: FONT }}>{op.period} • {total} processos</div>
+        <ResponsiveContainer width="100%" height={250}>
+          <PieChart>
+            <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} innerRadius={50} paddingAngle={3}
+              label={({ name, pct, cx: pcx, cy: pcy, midAngle, outerRadius: or }) => {
+                const rad = -midAngle * Math.PI / 180;
+                const x = pcx + (or + 25) * Math.cos(rad);
+                const y = pcy + (or + 25) * Math.sin(rad);
+                return <text x={x} y={y} textAnchor="middle" fill="#fff" fontSize={12} fontWeight={700} fontFamily={FONT}>{pct}%</text>;
+              }}
+              labelLine={{ stroke: C.muted, strokeWidth: 1 }}>
+              {pieData.map((_, i) => <Cell key={i} fill={colors[labels.indexOf(pieData[i]?.name)] || C.muted} />)}
+            </Pie>
+          </PieChart>
+        </ResponsiveContainer>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%" }}>
+          {pieData.map((p, i) => {
+            const color = colors[labels.indexOf(p.name)] || C.muted;
+            return (
+              <div key={p.name} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", borderRadius: 8, background: `${color}10`, borderLeft: `4px solid ${color}` }}>
+                <span style={{ fontSize: 28, fontWeight: 900, color, fontFamily: FONT }}>{p.value}</span>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#fff", fontFamily: FONT }}>{p.name}</div>
+                  <div style={{ fontSize: 12, color: C.muted, fontFamily: FONT }}>{p.pct}% dos processos</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ flex: 1, padding: "0 40px", display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>⚙️ ANÁLISE OPERACIONAL — {d.currentMonthName.toUpperCase()}</div>
+      <div style={{ fontSize: 14, color: C.muted, fontFamily: FONT, textAlign: "center" }}>Período: {op.period} • {op.totalProcessos} processos no período</div>
+      <div style={{ display: "flex", gap: 40, flex: 1, justifyContent: "center", alignItems: "flex-start", paddingTop: 12 }}>
+        <DonutChart
+          data={[etd.noPrazo, etd.antecipado, etd.atrasado, etd.semDados]}
+          title="📦 Pontualidade de Embarque"
+          colors={[C.green, C.cyan, C.red, C.muted]}
+          labels={["No prazo", "Antecipado", "Atrasado", "Sem dados"]}
+        />
+        <div style={{ width: 2, background: C.panelBorder, alignSelf: "stretch", margin: "40px 0" }} />
+        <DonutChart
+          data={[doc.noPrazo, doc.antecipado, doc.atrasado, doc.semDados]}
+          title="📄 Envio de Documentos (15 dias)"
+          colors={[C.green, C.cyan, C.red, C.muted]}
+          labels={["No prazo (≤15d)", "Antes do embarque", "Atrasado (>15d)", "Sem dados"]}
+        />
+      </div>
+    </div>
+  );
+}
+
 function SlideGlobe({ d }) {
   const mountRef = useRef(null);
 
@@ -1196,15 +1354,17 @@ export default function App() {
     showKPIs: true, showChart: true, showGauges: true,
     showTraders: true, showLinhas: true, showStatus: true,
     viewMode: "mes",
+    tvSlides: { 0: true, 1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true },
   });
 
   const loadData = useCallback(async () => {
     try {
-      const [lob, metasTrader, metaLinha, metaGlobal] = await Promise.all([
+      const [lob, metasTrader, metaLinha, metaGlobal, operacao] = await Promise.all([
         fetchSheet("LOB"), fetchSheet("Metas_Trader"),
         fetchSheet("Meta_linhadenegocio"), fetchSheet("Meta_Global"),
+        fetchSheet("Operação").catch(() => fetchSheet("Operacao").catch(() => [])),
       ]);
-      const processed = processData(lob, metasTrader, metaLinha, metaGlobal);
+      const processed = processData(lob, metasTrader, metaLinha, metaGlobal, operacao);
       setData(processed);
       setLastUpdate(new Date());
       setError(null);
@@ -1227,17 +1387,21 @@ export default function App() {
     return () => clearInterval(iv);
   }, [loggedIn, loadData]);
 
+  const enabledCount = SLIDE_NAMES.filter((_, i) => config.tvSlides[i]).length || 1;
+
   useEffect(() => {
     if (!tvMode || paused || !data) return;
-    const time = SLIDE_TIMES[currentSlide] || SLIDE_INTERVAL;
+    const enabledIdx = SLIDE_NAMES.map((_, i) => i).filter(i => config.tvSlides[i]);
+    const origIdx = enabledIdx[currentSlide % enabledIdx.length] || 0;
+    const time = SLIDE_TIMES[origIdx] || SLIDE_INTERVAL;
     const iv = setTimeout(() => {
-      setCurrentSlide(prev => (prev + 1) % SLIDE_NAMES.length);
+      setCurrentSlide(prev => (prev + 1) % enabledIdx.length);
     }, time);
     return () => clearTimeout(iv);
-  }, [tvMode, paused, data, currentSlide]);
+  }, [tvMode, paused, data, currentSlide, config.tvSlides]);
 
-  const goNext = () => setCurrentSlide(prev => (prev + 1) % SLIDE_NAMES.length);
-  const goPrev = () => setCurrentSlide(prev => (prev - 1 + SLIDE_NAMES.length) % SLIDE_NAMES.length);
+  const goNext = () => setCurrentSlide(prev => (prev + 1) % enabledCount);
+  const goPrev = () => setCurrentSlide(prev => (prev - 1 + enabledCount) % enabledCount);
 
   if (!loggedIn) return <LoginScreen onLogin={setLoggedIn} />;
 
@@ -1266,7 +1430,12 @@ export default function App() {
 
   // ── TV MODE ──
   if (tvMode) {
-    const slides = [<SlideOverview d={d} />, <SlideTraders d={d} />, <SlideLinhas d={d} />, <SlideStatus d={d} />, <SlideGauges d={d} />, <SlideMargens d={d} />, <SlideProdutos d={d} />, <SlideGlobe d={d} />];
+    const allSlides = [<SlideOverview d={d} />, <SlideTraders d={d} />, <SlideLinhas d={d} />, <SlideStatus d={d} />, <SlideGauges d={d} />, <SlideMargens d={d} />, <SlideProdutos d={d} />, <SlideGlobe d={d} />, <SlideOperacional d={d} />];
+    const enabledIndices = SLIDE_NAMES.map((_, i) => i).filter(i => config.tvSlides[i]);
+    const slides = enabledIndices.map(i => allSlides[i]);
+    const slideNames = enabledIndices.map(i => SLIDE_NAMES[i]);
+    const safeSlide = currentSlide % (slides.length || 1);
+    const originalIdx = enabledIndices[safeSlide] || 0;
     return (
       <div style={{ background: C.bg, minHeight: "100vh", color: C.white, fontFamily: FONT, display: "flex", flexDirection: "column" }}>
         <style>{`@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.8)}}@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}*{box-sizing:border-box;margin:0;padding:0}`}</style>
@@ -1281,7 +1450,7 @@ export default function App() {
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ display: "flex", gap: 5 }}>{SLIDE_NAMES.map((name, i) => (<div key={i} onClick={() => setCurrentSlide(i)} title={name} style={{ width: i === currentSlide ? 22 : 8, height: 8, borderRadius: 4, background: i === currentSlide ? C.cyan : C.panelBorder, cursor: "pointer", transition: "all 0.3s" }} />))}</div>
+            <div style={{ display: "flex", gap: 5 }}>{slideNames.map((name, i) => (<div key={i} onClick={() => setCurrentSlide(i)} title={name} style={{ width: i === safeSlide ? 22 : 8, height: 8, borderRadius: 4, background: i === safeSlide ? C.cyan : C.panelBorder, cursor: "pointer", transition: "all 0.3s" }} />))}</div>
             <button onClick={goPrev} style={{ background: "none", border: `1px solid ${C.panelBorder}`, borderRadius: 6, padding: "4px 10px", color: "#fff", cursor: "pointer", fontSize: 14 }}>◀</button>
             <button onClick={() => setPaused(!paused)} style={{ background: paused ? C.green : "none", border: `1px solid ${paused ? C.green : C.panelBorder}`, borderRadius: 6, padding: "4px 10px", color: "#fff", cursor: "pointer", fontSize: 14, minWidth: 32 }}>{paused ? "▶" : "⏸"}</button>
             <button onClick={goNext} style={{ background: "none", border: `1px solid ${C.panelBorder}`, borderRadius: 6, padding: "4px 10px", color: "#fff", cursor: "pointer", fontSize: 14 }}>▶</button>
@@ -1293,11 +1462,11 @@ export default function App() {
             <Clock />
           </div>
         </div>
-        {!paused && (<div style={{ height: 3, background: C.panelBorder }}><div key={currentSlide} style={{ height: "100%", background: C.cyan, animation: `progress ${SLIDE_TIMES[currentSlide] || SLIDE_INTERVAL}ms linear`, width: "100%" }} /><style>{`@keyframes progress{from{width:0}to{width:100%}}`}</style></div>)}
-        <div key={currentSlide} style={{ flex: 1, display: "flex", flexDirection: "column", padding: "16px 0", animation: "fadeIn 0.5s ease" }}>{slides[currentSlide]}</div>
+        {!paused && (<div style={{ height: 3, background: C.panelBorder }}><div key={safeSlide} style={{ height: "100%", background: C.cyan, animation: `progress ${SLIDE_TIMES[originalIdx] || SLIDE_INTERVAL}ms linear`, width: "100%" }} /><style>{`@keyframes progress{from{width:0}to{width:100%}}`}</style></div>)}
+        <div key={safeSlide} style={{ flex: 1, display: "flex", flexDirection: "column", padding: "16px 0", animation: "fadeIn 0.5s ease" }}>{slides[safeSlide]}</div>
         <div style={{ padding: "6px 24px", borderTop: `1px solid ${C.panelBorder}`, display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10, color: C.dimText, fontFamily: FONT }}>
           <span>🔗 Google Sheets • Atualização a cada 1 min</span>
-          <span style={{ fontSize: 12, color: C.muted, fontWeight: 600 }}>📺 {SLIDE_NAMES[currentSlide]} ({currentSlide + 1}/{SLIDE_NAMES.length})</span>
+          <span style={{ fontSize: 12, color: C.muted, fontWeight: 600 }}>📺 {slideNames[safeSlide]} ({safeSlide + 1}/{slides.length})</span>
           <span>Último update: {lastUpdate ? lastUpdate.toLocaleTimeString("pt-BR") : "—"} • INDEPENDENT BRAZIL v4.0</span>
         </div>
       </div>
