@@ -295,7 +295,7 @@ function fmtUSD(v) {
 // ══════════════════════════════════════════════════════════════
 //  DATA PROCESSING
 // ══════════════════════════════════════════════════════════════
-function processData(lob, metasTrader, metaLinha, metaGlobal, operacao) {
+function processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financial) {
   const now = new Date();
   const currentMonth = now.getMonth();
   const currentYear = now.getFullYear();
@@ -637,6 +637,79 @@ function processData(lob, metasTrader, metaLinha, metaGlobal, operacao) {
     produtosPorLinha,
     globeData,
     operationalData,
+
+    // ── Financial Analysis ──
+    financialData: (() => {
+      const finRows = (financial || []).map(r => {
+        const keys = Object.keys(r);
+        const findK = (s) => keys.find(k => k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[_\s]/g, "").includes(s)) || "";
+        const processoKey = findK("numero") || findK("processo") || keys[0];
+        const traderKey = keys.find(k => k.toLowerCase() === "trader") || findK("trader") || keys[1];
+        const etdKey = keys.find(k => { const lk = k.toLowerCase().replace(/[_\s]/g, ""); return lk === "etd"; }) || findK("etd") || keys[2];
+        const fornecedorKey = findK("fornecedor") || keys[3];
+        const clienteKey = findK("cliente") || keys[4];
+        const pgtoKey = findK("pgtofornecedor") || findK("prazo_pgto") || findK("pgto") || keys[5];
+        const recebKey = findK("recebimentocliente") || findK("prazo_recebimento") || findK("recebimento") || keys[6];
+        const cicloKey = findK("ciclofinanceiro") || findK("ciclo") || keys[7];
+        const etd = parseETD(r[etdKey] || "");
+        const pgto = parseFloat((r[pgtoKey] || "").toString().replace(/[^\d.-]/g, "")) || 0;
+        const receb = parseFloat((r[recebKey] || "").toString().replace(/[^\d.-]/g, "")) || 0;
+        const ciclo = parseFloat((r[cicloKey] || "").toString().replace(/[^\d.-]/g, "")) || 0;
+        return {
+          processo: (r[processoKey] || "").trim(),
+          trader: (r[traderKey] || "").trim(),
+          etd,
+          etdYear: etd ? etd.getFullYear() : -1,
+          fornecedor: (r[fornecedorKey] || "").trim(),
+          cliente: (r[clienteKey] || "").trim(),
+          pgto, receb, ciclo,
+          complete: pgto !== 0 && receb !== 0 && ciclo !== 0,
+        };
+      });
+
+      // Filter: current year + all 3 columns filled
+      const valid = finRows.filter(r => r.etdYear === currentYear && r.complete);
+      if (valid.length === 0) return { cicloMedio: 0, total: 0, byTrader: [], byLinha: [], topClientes: [], worstClientes: [], topFornecedores: [], worstFornecedores: [] };
+
+      const cicloMedio = valid.reduce((s, r) => s + r.ciclo, 0) / valid.length;
+
+      // By Trader
+      const traderMap = {};
+      valid.forEach(r => {
+        if (!r.trader) return;
+        if (!traderMap[r.trader]) traderMap[r.trader] = { name: r.trader, totalCiclo: 0, count: 0 };
+        traderMap[r.trader].totalCiclo += r.ciclo;
+        traderMap[r.trader].count += 1;
+      });
+      const byTrader = Object.values(traderMap).map(t => ({ ...t, media: t.totalCiclo / t.count })).sort((a, b) => a.media - b.media);
+
+      // By Cliente
+      const clienteMap = {};
+      valid.forEach(r => {
+        if (!r.cliente) return;
+        if (!clienteMap[r.cliente]) clienteMap[r.cliente] = { name: r.cliente, totalCiclo: 0, count: 0 };
+        clienteMap[r.cliente].totalCiclo += r.ciclo;
+        clienteMap[r.cliente].count += 1;
+      });
+      const allClientes = Object.values(clienteMap).map(c => ({ ...c, media: c.totalCiclo / c.count })).sort((a, b) => a.media - b.media);
+      const topClientes = allClientes.slice(0, 3);
+      const worstClientes = allClientes.slice(-3).reverse();
+
+      // By Fornecedor
+      const fornMap = {};
+      valid.forEach(r => {
+        if (!r.fornecedor) return;
+        if (!fornMap[r.fornecedor]) fornMap[r.fornecedor] = { name: r.fornecedor, totalCiclo: 0, count: 0 };
+        fornMap[r.fornecedor].totalCiclo += r.ciclo;
+        fornMap[r.fornecedor].count += 1;
+      });
+      const allForn = Object.values(fornMap).map(f => ({ ...f, media: f.totalCiclo / f.count })).sort((a, b) => a.media - b.media);
+      const topFornecedores = allForn.slice(0, 3);
+      const worstFornecedores = allForn.slice(-3).reverse();
+
+      return { cicloMedio, total: valid.length, byTrader, topClientes, worstClientes, topFornecedores, worstFornecedores };
+    })(),
+
     currentMonthName: MONTH_NAMES[currentMonth],
     _rawCurrentMonth: currentMonthRows,
   };
@@ -860,7 +933,7 @@ function SettingsPanel({ config, setConfig, onClose }) {
     { key: "viewMode", value: "mes", label: "Visão Mensal" },
     { key: "viewMode", value: "ano", label: "Visão Anual" },
   ];
-  const slideIcons = ["📊", "🏆", "🏷️", "📦", "🎯", "📈", "🥧", "🌍", "⚙️"];
+  const slideIcons = ["📊", "🏆", "🏷️", "📦", "🎯", "📈", "🥧", "🌍", "⚙️", "💰", "🏢"];
 
   return (
     <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: 340, background: C.panel, borderLeft: `1px solid ${C.panelBorder}`, zIndex: 1000, padding: "20px", display: "flex", flexDirection: "column", gap: 14, overflowY: "auto", boxShadow: "-4px 0 20px rgba(0,0,0,0.5)" }}>
@@ -911,7 +984,7 @@ function SettingsPanel({ config, setConfig, onClose }) {
 // ══════════════════════════════════════════════════════════════
 //  CAROUSEL SLIDES
 // ══════════════════════════════════════════════════════════════
-const SLIDE_NAMES = ["Visão Geral", "Ranking de Traders", "Linhas de Negócio", "Status dos Processos", "Metas Globais", "Margens de Venda", "Produtos por Linha", "Operações Globais", "Análise Operacional"];
+const SLIDE_NAMES = ["Visão Geral", "Ranking de Traders", "Linhas de Negócio", "Status dos Processos", "Metas Globais", "Margens de Venda", "Produtos por Linha", "Operações Globais", "Análise Operacional", "Ciclo Financeiro", "Clientes & Fornecedores"];
 const SLIDE_INTERVAL = 20000;
 const SLIDE_TIMES = { 7: 30000 }; // Slide 7 (Globe) = 30s, others = 20s
 
@@ -1232,6 +1305,130 @@ function getCountryCoords(pais) {
   }
   return null;
 }
+function CicloBar({ name, media, maxAbs }) {
+  const pct = maxAbs > 0 ? (Math.abs(media) / maxAbs) * 100 : 0;
+  const isGood = media <= 0;
+  const color = media <= -10 ? C.green : media <= 0 ? C.cyan : media <= 20 ? C.amber : C.red;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 12px" }}>
+      <span style={{ fontSize: 13, fontWeight: 600, color: "#fff", fontFamily: FONT, width: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
+      <div style={{ flex: 1, height: 8, background: C.panelBorder, borderRadius: 4, position: "relative", overflow: "hidden" }}>
+        <div style={{ position: "absolute", [isGood ? "right" : "left"]: "50%", width: `${pct / 2}%`, height: "100%", background: color, borderRadius: 4, transition: "width 1s" }} />
+        <div style={{ position: "absolute", left: "50%", top: 0, bottom: 0, width: 2, background: "#fff" }} />
+      </div>
+      <span style={{ fontSize: 16, fontWeight: 800, color, fontFamily: FONT, width: 70, textAlign: "right" }}>{media.toFixed(0)}d</span>
+    </div>
+  );
+}
+
+function SlideFinancial1({ d }) {
+  const fin = d.financialData;
+  const cicloColor = fin.cicloMedio <= -10 ? C.green : fin.cicloMedio <= 0 ? C.cyan : fin.cicloMedio <= 20 ? C.amber : C.red;
+  const maxTrader = fin.byTrader.length > 0 ? Math.max(...fin.byTrader.map(t => Math.abs(t.media))) : 1;
+
+  return (
+    <div style={{ flex: 1, padding: "0 40px", display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>💰 CICLO FINANCEIRO — {new Date().getFullYear()}</div>
+      <div style={{ fontSize: 13, color: C.muted, fontFamily: FONT, textAlign: "center" }}>{fin.total} processos com ciclo completo • Quanto mais negativo, melhor para o caixa</div>
+
+      {/* Ciclo Médio Central */}
+      <div style={{ display: "flex", justifyContent: "center", padding: "10px 0" }}>
+        <div style={{ background: `${cicloColor}12`, border: `2px solid ${cicloColor}40`, borderRadius: 16, padding: "20px 50px", textAlign: "center" }}>
+          <div style={{ fontSize: 14, color: C.muted, fontFamily: FONT, marginBottom: 4 }}>CICLO MÉDIO GERAL</div>
+          <div style={{ fontSize: 52, fontWeight: 900, color: cicloColor, fontFamily: FONT, lineHeight: 1 }}>{fin.cicloMedio.toFixed(0)} dias</div>
+          <div style={{ fontSize: 14, color: "#fff", fontFamily: FONT, marginTop: 6 }}>
+            {fin.cicloMedio <= -10 ? "🟢 Excelente — recebendo bem antes de pagar" : fin.cicloMedio <= 0 ? "🔵 Bom — recebendo antes de pagar" : fin.cicloMedio <= 20 ? "🟡 Atenção — pagando antes de receber" : "🔴 Crítico — alto capital de giro necessário"}
+          </div>
+        </div>
+      </div>
+
+      {/* Trader + Linha side by side */}
+      <div style={{ display: "flex", gap: 24, flex: 1 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 18, fontWeight: 800, color: "#fff", fontFamily: FONT, marginBottom: 8, textAlign: "center" }}>🏆 Por Trader</div>
+          {fin.byTrader.map(t => <CicloBar key={t.name} name={t.name} media={t.media} maxAbs={maxTrader} />)}
+          {fin.byTrader.length === 0 && <div style={{ color: C.muted, textAlign: "center" }}>Sem dados</div>}
+        </div>
+        <div style={{ width: 2, background: C.panelBorder }} />
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ fontSize: 18, fontWeight: 800, color: "#fff", fontFamily: FONT, marginBottom: 16 }}>📊 Escala do Ciclo</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, width: "80%" }}>
+            {[
+              { label: "Negativo (< 0 dias)", desc: "IB recebe antes de pagar", color: C.green, icon: "🟢" },
+              { label: "Zero (0 dias)", desc: "Recebe e paga no mesmo prazo", color: C.cyan, icon: "🔵" },
+              { label: "Positivo (1-20 dias)", desc: "IB paga antes de receber", color: C.amber, icon: "🟡" },
+              { label: "Crítico (> 20 dias)", desc: "Alto capital de giro", color: C.red, icon: "🔴" },
+            ].map(item => (
+              <div key={item.label} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: `${item.color}08`, borderLeft: `3px solid ${item.color}`, borderRadius: 6 }}>
+                <span style={{ fontSize: 18 }}>{item.icon}</span>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: FONT }}>{item.label}</div>
+                  <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT }}>{item.desc}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SlideFinancial2({ d }) {
+  const fin = d.financialData;
+  const RankCard = ({ items, title, type }) => {
+    const isTop = type === "top";
+    return (
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 16, fontWeight: 800, color: isTop ? C.green : C.red, fontFamily: FONT, textAlign: "center", marginBottom: 10 }}>{isTop ? "▲" : "▼"} {title}</div>
+        {items.map((item, i) => {
+          const color = item.media <= 0 ? C.green : item.media <= 20 ? C.amber : C.red;
+          return (
+            <div key={item.name} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 8, background: `${color}08`, borderLeft: `4px solid ${color}`, marginBottom: 6 }}>
+              <span style={{ fontSize: 22, fontWeight: 900, color, fontFamily: FONT, width: 30 }}>#{i + 1}</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: FONT, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</div>
+                <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT }}>{item.count} {item.count === 1 ? "processo" : "processos"}</div>
+              </div>
+              <span style={{ fontSize: 20, fontWeight: 900, color, fontFamily: FONT }}>{item.media.toFixed(0)}d</span>
+            </div>
+          );
+        })}
+        {items.length === 0 && <div style={{ color: C.muted, textAlign: "center", fontSize: 13 }}>Sem dados</div>}
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ flex: 1, padding: "0 40px", display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>💰 CICLO FINANCEIRO — CLIENTES & FORNECEDORES</div>
+      <div style={{ fontSize: 13, color: C.muted, fontFamily: FONT, textAlign: "center" }}>Top 3 melhores e piores ciclos financeiros • {new Date().getFullYear()}</div>
+
+      <div style={{ display: "flex", gap: 24, flex: 1, paddingTop: 8 }}>
+        {/* Clientes */}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ fontSize: 20, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>🏢 CLIENTES</div>
+          <div style={{ display: "flex", gap: 16, flex: 1 }}>
+            <RankCard items={fin.topClientes} title="MELHORES CICLOS" type="top" />
+            <RankCard items={fin.worstClientes} title="PIORES CICLOS" type="worst" />
+          </div>
+        </div>
+
+        <div style={{ width: 2, background: C.panelBorder }} />
+
+        {/* Fornecedores */}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ fontSize: 20, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>🏭 FORNECEDORES</div>
+          <div style={{ display: "flex", gap: 16, flex: 1 }}>
+            <RankCard items={fin.topFornecedores} title="MELHORES CICLOS" type="top" />
+            <RankCard items={fin.worstFornecedores} title="PIORES CICLOS" type="worst" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SlideOperacional({ d }) {
   const op = d.operationalData;
   const etd = op.etdAnalysis;
@@ -1547,17 +1744,18 @@ export default function App() {
     showKPIs: true, showChart: true, showGauges: true,
     showTraders: true, showLinhas: true, showStatus: true,
     viewMode: "mes",
-    tvSlides: { 0: true, 1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true },
+    tvSlides: { 0: true, 1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true, 9: true, 10: true },
   });
 
   const loadData = useCallback(async () => {
     try {
-      const [lob, metasTrader, metaLinha, metaGlobal, operacao] = await Promise.all([
+      const [lob, metasTrader, metaLinha, metaGlobal, operacao, financial] = await Promise.all([
         fetchSheet("LOB"), fetchSheet("Metas_Trader"),
         fetchSheet("Meta_linhadenegocio"), fetchSheet("Meta_Global"),
         fetchSheet("Operação").catch(() => fetchSheet("Operacao").catch(() => [])),
+        fetchSheet("Fiancial").catch(() => fetchSheet("Financial").catch(() => [])),
       ]);
-      const processed = processData(lob, metasTrader, metaLinha, metaGlobal, operacao);
+      const processed = processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financial);
       setData(processed);
       setLastUpdate(new Date());
       setError(null);
@@ -1623,7 +1821,7 @@ export default function App() {
 
   // ── TV MODE ──
   if (tvMode) {
-    const allSlides = [<SlideOverview d={d} />, <SlideTraders d={d} />, <SlideLinhas d={d} />, <SlideStatus d={d} />, <SlideGauges d={d} />, <SlideMargens d={d} />, <SlideProdutos d={d} />, <SlideGlobe d={d} />, <SlideOperacional d={d} />];
+    const allSlides = [<SlideOverview d={d} />, <SlideTraders d={d} />, <SlideLinhas d={d} />, <SlideStatus d={d} />, <SlideGauges d={d} />, <SlideMargens d={d} />, <SlideProdutos d={d} />, <SlideGlobe d={d} />, <SlideOperacional d={d} />, <SlideFinancial1 d={d} />, <SlideFinancial2 d={d} />];
     const enabledIndices = SLIDE_NAMES.map((_, i) => i).filter(i => config.tvSlides[i]);
     const slides = enabledIndices.map(i => allSlides[i]);
     const slideNames = enabledIndices.map(i => SLIDE_NAMES[i]);
