@@ -367,25 +367,14 @@ function processData(lob, metasTrader, metaLinha, metaGlobal, operacao) {
   const globeData = Object.values(paisData).sort((a, b) => b.lob - a.lob);
 
   // ── Operational Analysis ──
-  // Period: 26 of prev month to 25 of current month
-  const opStart = new Date(currentYear, currentMonth - 1, 26);
-  const opEnd = new Date(currentYear, currentMonth, 25);
+  // ETD Pontualidade: full month (01 to last day)
+  const etdStart = new Date(currentYear, currentMonth, 1);
+  const etdEnd = new Date(currentYear, currentMonth + 1, 0); // last day of current month
+  // Envio Documentos: 26 of prev month to 25 of current month
+  const docStart = new Date(currentYear, currentMonth - 1, 26);
+  const docEnd = new Date(currentYear, currentMonth, 25);
 
   // Parse operação rows
-  const opRows = (operacao || []).map(r => {
-    const keys = Object.keys(r);
-    const findK = (s) => keys.find(k => k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[_\s]/g, "").includes(s)) || "";
-    return {
-      processo: r[findK("numero")] || r[findK("processo")] || "",
-      responsavel: r[findK("responsavel")] || "",
-      trader: r[findK("trader")] || "",
-      etdInicial: parseETD(r[findK("etdinicial")] || r[findK("inicial")] || ""),
-      etd: parseETD(r[findK("etd")] && !keys.find(k => k.toLowerCase().includes("inicial") && k === findK("etd")) ? r[keys.find(k => { const lk = k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[_\s]/g, ""); return lk === "etd"; }) || ""] || "" : ""),
-      envioDoc: parseETD(r[findK("envio")] || r[findK("documento")] || ""),
-    };
-  });
-
-  // Better ETD parsing: find exact columns
   const opParsed = (operacao || []).map(r => {
     const keys = Object.keys(r);
     const processoKey = keys.find(k => k.toLowerCase().replace(/[_\s]/g, "").includes("numero")) || keys[0];
@@ -404,23 +393,25 @@ function processData(lob, metasTrader, metaLinha, metaGlobal, operacao) {
     };
   });
 
-  // Filter by operational period (ETD between 26/prev to 25/current)
-  const opFiltered = opParsed.filter(r => r.etd && r.etd >= opStart && r.etd <= opEnd);
+  // Filter for ETD Pontualidade: full month
+  const etdFiltered = opParsed.filter(r => r.etd && r.etd >= etdStart && r.etd <= etdEnd);
 
-  // Analysis 1: ETD Pontualidade (ETD inicial vs ETD real)
-  const etdAnalysis = { noPrazo: 0, antecipado: 0, atrasado: 0, semDados: 0, total: opFiltered.length };
-  const etdDetails = [];
-  opFiltered.forEach(r => {
+  // Filter for Doc analysis: 26-25 period
+  const docFiltered = opParsed.filter(r => r.etd && r.etd >= docStart && r.etd <= docEnd);
+
+  // Analysis 1: ETD Pontualidade (ETD inicial vs ETD real) — full month
+  const etdAnalysis = { noPrazo: 0, antecipado: 0, atrasado: 0, semDados: 0, total: etdFiltered.length };
+  etdFiltered.forEach(r => {
     if (!r.etdInicial || !r.etd) { etdAnalysis.semDados++; return; }
     const diffDays = Math.round((r.etd - r.etdInicial) / (1000 * 60 * 60 * 24));
-    if (diffDays === 0) { etdAnalysis.noPrazo++; etdDetails.push({ ...r, status: "No prazo", diff: 0 }); }
-    else if (diffDays < 0) { etdAnalysis.antecipado++; etdDetails.push({ ...r, status: "Antecipado", diff: diffDays }); }
-    else { etdAnalysis.atrasado++; etdDetails.push({ ...r, status: "Atrasado", diff: diffDays }); }
+    if (diffDays === 0) etdAnalysis.noPrazo++;
+    else if (diffDays < 0) etdAnalysis.antecipado++;
+    else etdAnalysis.atrasado++;
   });
 
-  // Analysis 2: Envio de Documentos (ETD vs Envio, prazo 15 dias)
-  const docAnalysis = { noPrazo: 0, antecipado: 0, atrasado: 0, semDados: 0, total: opFiltered.length };
-  opFiltered.forEach(r => {
+  // Analysis 2: Envio de Documentos (ETD vs Envio, prazo 15 dias) — 26 to 25 period
+  const docAnalysis = { noPrazo: 0, antecipado: 0, atrasado: 0, semDados: 0, total: docFiltered.length };
+  docFiltered.forEach(r => {
     if (!r.etd || !r.envioDoc) { docAnalysis.semDados++; return; }
     const diffDays = Math.round((r.envioDoc - r.etd) / (1000 * 60 * 60 * 24));
     if (diffDays <= 15 && diffDays >= 0) docAnalysis.noPrazo++;
@@ -428,11 +419,16 @@ function processData(lob, metasTrader, metaLinha, metaGlobal, operacao) {
     else docAnalysis.atrasado++;
   });
 
+  const etdPeriod = `01/${(currentMonth+1).toString().padStart(2,"0")} a ${etdEnd.getDate()}/${(currentMonth+1).toString().padStart(2,"0")}`;
+  const docPeriod = `${docStart.getDate().toString().padStart(2,"0")}/${(docStart.getMonth()+1).toString().padStart(2,"0")} a ${docEnd.getDate().toString().padStart(2,"0")}/${(docEnd.getMonth()+1).toString().padStart(2,"0")}`;
+
   const operationalData = {
-    period: `${opStart.getDate().toString().padStart(2,"0")}/${(opStart.getMonth()+1).toString().padStart(2,"0")} a ${opEnd.getDate().toString().padStart(2,"0")}/${(opEnd.getMonth()+1).toString().padStart(2,"0")}`,
+    etdPeriod,
+    docPeriod,
     etdAnalysis,
     docAnalysis,
-    totalProcessos: opFiltered.length,
+    totalEtd: etdFiltered.length,
+    totalDoc: docFiltered.length,
   };
 
   return {
@@ -1049,7 +1045,7 @@ function SlideOperacional({ d }) {
   const etd = op.etdAnalysis;
   const doc = op.docAnalysis;
 
-  const DonutChart = ({ data, title, colors, labels }) => {
+  const DonutChart = ({ data, title, colors, labels, period, totalProc }) => {
     const total = data.reduce((s, v) => s + v, 0);
     if (total === 0) return <div style={{ textAlign: "center", color: C.muted, fontSize: 14 }}>Sem dados</div>;
     const pieData = data.map((v, i) => ({ name: labels[i], value: v, pct: ((v / total) * 100).toFixed(1) })).filter(d => d.value > 0);
@@ -1057,7 +1053,7 @@ function SlideOperacional({ d }) {
     return (
       <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
         <div style={{ fontSize: 20, fontWeight: 800, color: "#fff", fontFamily: FONT, textAlign: "center" }}>{title}</div>
-        <div style={{ fontSize: 14, color: C.muted, fontFamily: FONT }}>{op.period} • {total} processos</div>
+        <div style={{ fontSize: 14, color: C.muted, fontFamily: FONT }}>{period} • {totalProc} processos</div>
         <ResponsiveContainer width="100%" height={250}>
           <PieChart>
             <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} innerRadius={50} paddingAngle={3}
@@ -1093,13 +1089,15 @@ function SlideOperacional({ d }) {
   return (
     <div style={{ flex: 1, padding: "0 40px", display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>⚙️ ANÁLISE OPERACIONAL — {d.currentMonthName.toUpperCase()}</div>
-      <div style={{ fontSize: 14, color: C.muted, fontFamily: FONT, textAlign: "center" }}>Período: {op.period} • {op.totalProcessos} processos no período</div>
+      <div style={{ fontSize: 14, color: C.muted, fontFamily: FONT, textAlign: "center" }}>Embarque: {op.etdPeriod} ({op.totalEtd} proc.) • Documentos: {op.docPeriod} ({op.totalDoc} proc.)</div>
       <div style={{ display: "flex", gap: 40, flex: 1, justifyContent: "center", alignItems: "flex-start", paddingTop: 12 }}>
         <DonutChart
           data={[etd.noPrazo, etd.antecipado, etd.atrasado, etd.semDados]}
           title="📦 Pontualidade de Embarque"
           colors={[C.green, C.cyan, C.red, C.muted]}
           labels={["No prazo", "Antecipado", "Atrasado", "Sem dados"]}
+          period={op.etdPeriod}
+          totalProc={op.totalEtd}
         />
         <div style={{ width: 2, background: C.panelBorder, alignSelf: "stretch", margin: "40px 0" }} />
         <DonutChart
@@ -1107,6 +1105,8 @@ function SlideOperacional({ d }) {
           title="📄 Envio de Documentos (15 dias)"
           colors={[C.green, C.cyan, C.red, C.muted]}
           labels={["No prazo (≤15d)", "Antes do embarque", "Atrasado (>15d)", "Sem dados"]}
+          period={op.docPeriod}
+          totalProc={op.totalDoc}
         />
       </div>
     </div>
