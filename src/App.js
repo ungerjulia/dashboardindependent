@@ -1,7 +1,198 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import * as recharts from "recharts";
+import { jsPDF } from "jspdf";
+import "jspdf-autotable";
 
 const { AreaChart, Area, BarChart, Bar, ComposedChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } = recharts;
+
+// ══════════════════════════════════════════════════════════════
+//  PDF REPORT GENERATION
+// ══════════════════════════════════════════════════════════════
+function generateEmbarcadosPDF(data) {
+  const doc = new jsPDF("landscape");
+  const now = new Date();
+  const monthName = data.currentMonthName;
+
+  // Header
+  doc.setFillColor(10, 14, 23);
+  doc.rect(0, 0, 297, 30, "F");
+  doc.setFontSize(18);
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.text("INDEPENDENT BRAZIL", 15, 15);
+  doc.setFontSize(10);
+  doc.setTextColor(150, 150, 150);
+  doc.text(`Trading Desk • Processos Embarcados • ${monthName} ${now.getFullYear()}`, 15, 22);
+  doc.setFontSize(9);
+  doc.text(`Gerado em: ${now.toLocaleDateString("pt-BR")} ${now.toLocaleTimeString("pt-BR")}`, 250, 22);
+
+  // Filter embarcado rows from LOB data
+  const rows = data._rawCurrentMonth.filter(r => r.status.toLowerCase() === "embarcado");
+
+  doc.setFontSize(12);
+  doc.setTextColor(0, 0, 0);
+  doc.text(`Total: ${rows.length} processos embarcados`, 15, 38);
+
+  // Table
+  doc.autoTable({
+    startY: 42,
+    head: [["Processo", "Resp. Operacional", "Trader", "Linha de Negócio", "Cliente", "Fornecedor", "ETD", "LOB (USD)"]],
+    body: rows.map(r => [
+      r.processo,
+      r.responsavel,
+      r.trader,
+      r.linha,
+      r.cliente ? r.cliente.substring(0, 30) : "",
+      r.fornecedor ? r.fornecedor.substring(0, 30) : "",
+      r.etd ? r.etd.toLocaleDateString("pt-BR") : "",
+      `$ ${r.lob.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    ]),
+    styles: { fontSize: 8, cellPadding: 3, font: "helvetica" },
+    headStyles: { fillColor: [10, 14, 23], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 9 },
+    alternateRowStyles: { fillColor: [240, 240, 245] },
+    foot: [["", "", "", "", "", "", "TOTAL", `$ ${rows.reduce((s, r) => s + r.lob, 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]],
+    footStyles: { fillColor: [10, 14, 23], textColor: [0, 230, 118], fontStyle: "bold", fontSize: 10 },
+  });
+
+  // Footer
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(8);
+    doc.setTextColor(150, 150, 150);
+    doc.text(`Independent Brazil • Trading Desk • Página ${i}/${pageCount}`, 15, doc.internal.pageSize.height - 8);
+  }
+
+  doc.save(`IB_Embarcados_${monthName}_${now.getFullYear()}.pdf`);
+}
+
+function generateResumoMesPDF(data) {
+  const doc = new jsPDF("landscape");
+  const now = new Date();
+  const monthName = data.currentMonthName;
+  const d = data;
+
+  // Header
+  doc.setFillColor(10, 14, 23);
+  doc.rect(0, 0, 297, 30, "F");
+  doc.setFontSize(18);
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.text("INDEPENDENT BRAZIL", 15, 15);
+  doc.setFontSize(10);
+  doc.setTextColor(150, 150, 150);
+  doc.text(`Trading Desk • Resumo Geral • ${monthName} ${now.getFullYear()}`, 15, 22);
+  doc.setFontSize(9);
+  doc.text(`Gerado em: ${now.toLocaleDateString("pt-BR")} ${now.toLocaleTimeString("pt-BR")}`, 250, 22);
+
+  let y = 38;
+
+  // KPIs
+  doc.setFontSize(14);
+  doc.setTextColor(0, 0, 0);
+  doc.setFont("helvetica", "bold");
+  doc.text("INDICADORES DO MÊS", 15, y);
+  y += 8;
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "normal");
+  const fUSD = (v) => `$ ${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  doc.text(`LOB Mensal: ${fUSD(d.lobMesAtual)}  |  Meta: ${fUSD(d.metaMesAtual)}  |  Diferença: ${fUSD(d.lobMesAtual - d.metaMesAtual)}`, 15, y);
+  y += 6;
+  doc.text(`LOB Trimestral: ${fUSD(d.lobTrimestral)}  |  Meta: ${fUSD(d.metaTrimestral)}`, 15, y);
+  y += 6;
+  doc.text(`LOB Anual: ${fUSD(d.lobAnoTotal)}  |  Meta: ${fUSD(d.metaAnoTotal)}`, 15, y);
+  y += 6;
+  doc.text(`Processos no mês: ${d.totalOps}  |  Processos no ano: ${d.totalOpsAno}`, 15, y);
+  y += 10;
+
+  // Status breakdown
+  doc.setFontSize(14);
+  doc.setFont("helvetica", "bold");
+  doc.text("STATUS DOS PROCESSOS", 15, y);
+  y += 2;
+  doc.autoTable({
+    startY: y,
+    head: [["Status", "Quantidade", "LOB (USD)"]],
+    body: Object.entries(d.statusData).sort((a, b) => b[1].lob - a[1].lob).map(([status, sdata]) => [
+      status, sdata.count.toString(), fUSD(sdata.lob),
+    ]),
+    styles: { fontSize: 9, cellPadding: 3 },
+    headStyles: { fillColor: [10, 14, 23], textColor: [255, 255, 255], fontStyle: "bold" },
+    margin: { left: 15, right: 150 },
+  });
+
+  y = doc.lastAutoTable.finalY + 10;
+
+  // Trader ranking
+  doc.setFontSize(14);
+  doc.setFont("helvetica", "bold");
+  doc.text("RANKING DE TRADERS", 15, y);
+  y += 2;
+  doc.autoTable({
+    startY: y,
+    head: [["#", "Trader", "LOB Mês (USD)", "Meta Mês", "% Atingido", "Processos"]],
+    body: d.traderRanking.map((t, i) => [
+      (i + 1).toString(), t.name, fUSD(t.lobMes), fUSD(t.metaMes), `${t.pctMes.toFixed(1)}%`, t.opsMes.toString(),
+    ]),
+    styles: { fontSize: 9, cellPadding: 3 },
+    headStyles: { fillColor: [10, 14, 23], textColor: [255, 255, 255], fontStyle: "bold" },
+  });
+
+  y = doc.lastAutoTable.finalY + 10;
+
+  // Linhas de negócio
+  if (y > 170) { doc.addPage(); y = 20; }
+  doc.setFontSize(14);
+  doc.setFont("helvetica", "bold");
+  doc.text("LINHAS DE NEGÓCIO", 15, y);
+  y += 2;
+  doc.autoTable({
+    startY: y,
+    head: [["Linha", "LOB Mês (USD)", "Meta Mês", "% Atingido", "LOB Ano", "Meta Ano", "% Ano"]],
+    body: d.linhaRanking.map(l => [
+      l.name, fUSD(l.lobMes), fUSD(l.metaMes), `${l.pctMes.toFixed(1)}%`, fUSD(l.lobAno), fUSD(l.metaAno), `${l.pctAno.toFixed(1)}%`,
+    ]),
+    styles: { fontSize: 9, cellPadding: 3 },
+    headStyles: { fillColor: [10, 14, 23], textColor: [255, 255, 255], fontStyle: "bold" },
+  });
+
+  // All processes table
+  doc.addPage();
+  doc.setFillColor(10, 14, 23);
+  doc.rect(0, 0, 297, 20, "F");
+  doc.setFontSize(14);
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.text(`TODOS OS PROCESSOS — ${monthName.toUpperCase()} ${now.getFullYear()}`, 15, 13);
+
+  const allRows = d._rawCurrentMonth;
+  doc.autoTable({
+    startY: 25,
+    head: [["Processo", "Resp.", "Trader", "Linha", "Status", "Cliente", "ETD", "LOB (USD)"]],
+    body: allRows.map(r => [
+      r.processo, r.responsavel, r.trader, r.linha, r.status,
+      r.cliente ? r.cliente.substring(0, 25) : "",
+      r.etd ? r.etd.toLocaleDateString("pt-BR") : "",
+      fUSD(r.lob),
+    ]),
+    styles: { fontSize: 7, cellPadding: 2, font: "helvetica" },
+    headStyles: { fillColor: [10, 14, 23], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 8 },
+    alternateRowStyles: { fillColor: [240, 240, 245] },
+    foot: [["", "", "", "", "", "", "TOTAL", fUSD(allRows.reduce((s, r) => s + r.lob, 0))]],
+    footStyles: { fillColor: [10, 14, 23], textColor: [0, 230, 118], fontStyle: "bold", fontSize: 9 },
+  });
+
+  // Footer on all pages
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(8);
+    doc.setTextColor(150, 150, 150);
+    doc.text(`Independent Brazil • Trading Desk • Página ${i}/${pageCount}`, 15, doc.internal.pageSize.height - 8);
+  }
+
+  doc.save(`IB_Resumo_${monthName}_${now.getFullYear()}.pdf`);
+}
 
 // ══════════════════════════════════════════════════════════════
 //  CONFIG
@@ -447,6 +638,7 @@ function processData(lob, metasTrader, metaLinha, metaGlobal, operacao) {
     globeData,
     operationalData,
     currentMonthName: MONTH_NAMES[currentMonth],
+    _rawCurrentMonth: currentMonthRows,
   };
 }
 
@@ -1350,6 +1542,7 @@ export default function App() {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [paused, setPaused] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [reportsOpen, setReportsOpen] = useState(false);
   const [config, setConfig] = useState({
     showKPIs: true, showChart: true, showGauges: true,
     showTraders: true, showLinhas: true, showStatus: true,
@@ -1491,6 +1684,19 @@ export default function App() {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <button onClick={() => { setTvMode(true); setCurrentSlide(0); setPaused(false); }} style={{ background: `linear-gradient(135deg, ${C.blue}, ${C.cyan})`, border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, color: "#fff", fontFamily: FONT, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>📺 Modo TV</button>
+          <div style={{ position: "relative" }}>
+            <button onClick={() => setReportsOpen(!reportsOpen)} style={{ background: `linear-gradient(135deg, ${C.amber}, #ff9800)`, border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, color: "#fff", fontFamily: FONT, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>📄 Relatórios</button>
+            {reportsOpen && (
+              <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 8, background: C.panel, border: `1px solid ${C.panelBorder}`, borderRadius: 10, padding: "8px", minWidth: 260, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", zIndex: 100 }}>
+                <button onClick={() => { generateEmbarcadosPDF(d); setReportsOpen(false); }} style={{ width: "100%", background: "none", border: "none", padding: "10px 14px", cursor: "pointer", textAlign: "left", borderRadius: 6, color: "#fff", fontFamily: FONT, fontSize: 13, display: "flex", alignItems: "center", gap: 8 }} onMouseOver={e => e.currentTarget.style.background = C.panelBorder} onMouseOut={e => e.currentTarget.style.background = "none"}>
+                  📦 <span>Processos Embarcados — {d.currentMonthName}</span>
+                </button>
+                <button onClick={() => { generateResumoMesPDF(d); setReportsOpen(false); }} style={{ width: "100%", background: "none", border: "none", padding: "10px 14px", cursor: "pointer", textAlign: "left", borderRadius: 6, color: "#fff", fontFamily: FONT, fontSize: 13, display: "flex", alignItems: "center", gap: 8 }} onMouseOver={e => e.currentTarget.style.background = C.panelBorder} onMouseOut={e => e.currentTarget.style.background = "none"}>
+                  📊 <span>Resumo Geral — {d.currentMonthName}</span>
+                </button>
+              </div>
+            )}
+          </div>
           <button onClick={() => setSettingsOpen(true)} style={{ background: C.panelBorder, border: "none", borderRadius: 8, padding: "8px 12px", cursor: "pointer", fontSize: 16, color: C.muted }} title="Configurações">⚙️</button>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.green, animation: "pulse 2s ease-in-out infinite", boxShadow: `0 0 8px ${C.green}80` }} />
