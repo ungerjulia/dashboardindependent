@@ -669,7 +669,7 @@ function processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financia
 
       // Filter: current year + all 3 columns filled
       const valid = finRows.filter(r => r.etdYear === currentYear && r.complete);
-      if (valid.length === 0) return { cicloMedio: 0, total: 0, byTrader: [], byLinha: [], topClientes: [], worstClientes: [], topFornecedores: [], worstFornecedores: [] };
+      if (valid.length === 0) return { cicloMedio: 0, total: 0, byTrader: [], topClientes: [], worstClientes: [], topFornecedores: [], worstFornecedores: [], monthlyCiclo: [] };
 
       const cicloMedio = valid.reduce((s, r) => s + r.ciclo, 0) / valid.length;
 
@@ -683,31 +683,41 @@ function processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financia
       });
       const byTrader = Object.values(traderMap).map(t => ({ ...t, media: t.totalCiclo / t.count })).sort((a, b) => a.media - b.media);
 
-      // By Cliente
+      // By Cliente — using column G (Prazo_recebimento_cliente), lower/negative = better
       const clienteMap = {};
       valid.forEach(r => {
         if (!r.cliente) return;
-        if (!clienteMap[r.cliente]) clienteMap[r.cliente] = { name: r.cliente, totalCiclo: 0, count: 0 };
-        clienteMap[r.cliente].totalCiclo += r.ciclo;
+        if (!clienteMap[r.cliente]) clienteMap[r.cliente] = { name: r.cliente, totalVal: 0, count: 0 };
+        clienteMap[r.cliente].totalVal += r.receb;
         clienteMap[r.cliente].count += 1;
       });
-      const allClientes = Object.values(clienteMap).map(c => ({ ...c, media: c.totalCiclo / c.count })).sort((a, b) => a.media - b.media);
+      const allClientes = Object.values(clienteMap).map(c => ({ ...c, media: c.totalVal / c.count })).sort((a, b) => a.media - b.media);
       const topClientes = allClientes.slice(0, 3);
       const worstClientes = allClientes.slice(-3).reverse();
 
-      // By Fornecedor
+      // By Fornecedor — using column F (Prazo_pgto_fornecedor), higher/more positive = better
       const fornMap = {};
       valid.forEach(r => {
         if (!r.fornecedor) return;
-        if (!fornMap[r.fornecedor]) fornMap[r.fornecedor] = { name: r.fornecedor, totalCiclo: 0, count: 0 };
-        fornMap[r.fornecedor].totalCiclo += r.ciclo;
+        if (!fornMap[r.fornecedor]) fornMap[r.fornecedor] = { name: r.fornecedor, totalVal: 0, count: 0 };
+        fornMap[r.fornecedor].totalVal += r.pgto;
         fornMap[r.fornecedor].count += 1;
       });
-      const allForn = Object.values(fornMap).map(f => ({ ...f, media: f.totalCiclo / f.count })).sort((a, b) => a.media - b.media);
+      const allForn = Object.values(fornMap).map(f => ({ ...f, media: f.totalVal / f.count })).sort((a, b) => b.media - a.media);
       const topFornecedores = allForn.slice(0, 3);
       const worstFornecedores = allForn.slice(-3).reverse();
 
-      return { cicloMedio, total: valid.length, byTrader, topClientes, worstClientes, topFornecedores, worstFornecedores };
+      // Monthly ciclo average (column H) by ETD month
+      const monthlyCiclo = [];
+      for (let m = 0; m <= currentMonth; m++) {
+        const monthRows = valid.filter(r => r.etd && r.etd.getMonth() === m);
+        if (monthRows.length > 0) {
+          const avg = monthRows.reduce((s, r) => s + r.ciclo, 0) / monthRows.length;
+          monthlyCiclo.push({ month: MONTH_SHORT[m], monthFull: MONTH_NAMES[m], media: avg, count: monthRows.length });
+        }
+      }
+
+      return { cicloMedio, total: valid.length, byTrader, topClientes, worstClientes, topFornecedores, worstFornecedores, monthlyCiclo };
     })(),
 
     currentMonthName: MONTH_NAMES[currentMonth],
@@ -933,7 +943,7 @@ function SettingsPanel({ config, setConfig, onClose }) {
     { key: "viewMode", value: "mes", label: "Visão Mensal" },
     { key: "viewMode", value: "ano", label: "Visão Anual" },
   ];
-  const slideIcons = ["📊", "🏆", "🏷️", "📦", "🎯", "📈", "🥧", "🌍", "⚙️", "💰", "🏢"];
+  const slideIcons = ["📊", "🏆", "🏷️", "📦", "🎯", "📈", "🥧", "🌍", "⚙️", "💰", "📅", "🏢"];
 
   return (
     <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: 340, background: C.panel, borderLeft: `1px solid ${C.panelBorder}`, zIndex: 1000, padding: "20px", display: "flex", flexDirection: "column", gap: 14, overflowY: "auto", boxShadow: "-4px 0 20px rgba(0,0,0,0.5)" }}>
@@ -984,7 +994,7 @@ function SettingsPanel({ config, setConfig, onClose }) {
 // ══════════════════════════════════════════════════════════════
 //  CAROUSEL SLIDES
 // ══════════════════════════════════════════════════════════════
-const SLIDE_NAMES = ["Visão Geral", "Ranking de Traders", "Linhas de Negócio", "Status dos Processos", "Metas Globais", "Margens de Venda", "Produtos por Linha", "Operações Globais", "Análise Operacional", "Ciclo Financeiro", "Clientes & Fornecedores"];
+const SLIDE_NAMES = ["Visão Geral", "Ranking de Traders", "Linhas de Negócio", "Status dos Processos", "Metas Globais", "Margens de Venda", "Produtos por Linha", "Operações Globais", "Análise Operacional", "Ciclo Financeiro", "Ciclo Mensal", "Prazos Clientes & Fornecedores"];
 const SLIDE_INTERVAL = 20000;
 const SLIDE_TIMES = { 7: 30000 }; // Slide 7 (Globe) = 30s, others = 20s
 
@@ -1374,15 +1384,61 @@ function SlideFinancial1({ d }) {
   );
 }
 
+function SlideFinancialMensal({ d }) {
+  const fin = d.financialData;
+  const data = fin.monthlyCiclo;
+  const maxAbs = data.length > 0 ? Math.max(...data.map(m => Math.abs(m.media))) : 1;
+
+  return (
+    <div style={{ flex: 1, padding: "0 40px", display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>💰 CICLO FINANCEIRO — EVOLUÇÃO MENSAL</div>
+      <div style={{ fontSize: 13, color: C.muted, fontFamily: FONT, textAlign: "center" }}>Média do ciclo financeiro (Coluna H) por mês • Quanto mais negativo, melhor para o caixa</div>
+
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 12, justifyContent: "center", maxWidth: 800, margin: "0 auto", width: "100%" }}>
+        {data.map((m, i) => {
+          const color = m.media <= -10 ? C.green : m.media <= 0 ? C.cyan : m.media <= 20 ? C.amber : C.red;
+          const barPct = maxAbs > 0 ? (Math.abs(m.media) / maxAbs) * 40 : 0;
+          const isNeg = m.media <= 0;
+          return (
+            <div key={m.month} style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 20px", background: `${color}08`, borderRadius: 10, borderLeft: `4px solid ${color}` }}>
+              <div style={{ width: 100 }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: "#fff", fontFamily: FONT }}>{m.monthFull}</div>
+                <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT }}>{m.count} processos</div>
+              </div>
+              <div style={{ flex: 1, height: 12, background: C.panelBorder, borderRadius: 6, position: "relative", overflow: "hidden" }}>
+                <div style={{ position: "absolute", left: "50%", top: 0, bottom: 0, width: 2, background: "#fff", zIndex: 1 }} />
+                <div style={{ position: "absolute", [isNeg ? "right" : "left"]: "50%", width: `${barPct}%`, height: "100%", background: color, borderRadius: 6 }} />
+              </div>
+              <div style={{ width: 100, textAlign: "right" }}>
+                <span style={{ fontSize: 28, fontWeight: 900, color, fontFamily: FONT }}>{m.media.toFixed(0)}</span>
+                <span style={{ fontSize: 14, fontWeight: 600, color: C.muted, fontFamily: FONT }}> dias</span>
+              </div>
+            </div>
+          );
+        })}
+        {data.length === 0 && <div style={{ color: C.muted, textAlign: "center", fontSize: 16 }}>Sem dados de ciclo financeiro completo</div>}
+      </div>
+
+      <div style={{ display: "flex", gap: 20, justifyContent: "center", fontSize: 12, color: C.muted, fontFamily: FONT }}>
+        <span><span style={{ color: C.green }}>●</span> Excelente (&lt;-10d)</span>
+        <span><span style={{ color: C.cyan }}>●</span> Bom (0 a -10d)</span>
+        <span><span style={{ color: C.amber }}>●</span> Atenção (1-20d)</span>
+        <span><span style={{ color: C.red }}>●</span> Crítico (&gt;20d)</span>
+      </div>
+    </div>
+  );
+}
+
 function SlideFinancial2({ d }) {
   const fin = d.financialData;
-  const RankCard = ({ items, title, type }) => {
+  const RankCard = ({ items, title, type, unit }) => {
     const isTop = type === "top";
     return (
       <div style={{ flex: 1 }}>
         <div style={{ fontSize: 16, fontWeight: 800, color: isTop ? C.green : C.red, fontFamily: FONT, textAlign: "center", marginBottom: 10 }}>{isTop ? "▲" : "▼"} {title}</div>
         {items.map((item, i) => {
-          const color = item.media <= 0 ? C.green : item.media <= 20 ? C.amber : C.red;
+          const val = item.media;
+          const color = isTop ? C.green : C.red;
           return (
             <div key={item.name} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 8, background: `${color}08`, borderLeft: `4px solid ${color}`, marginBottom: 6 }}>
               <span style={{ fontSize: 22, fontWeight: 900, color, fontFamily: FONT, width: 30 }}>#{i + 1}</span>
@@ -1390,7 +1446,7 @@ function SlideFinancial2({ d }) {
                 <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: FONT, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</div>
                 <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT }}>{item.count} {item.count === 1 ? "processo" : "processos"}</div>
               </div>
-              <span style={{ fontSize: 20, fontWeight: 900, color, fontFamily: FONT }}>{item.media.toFixed(0)}d</span>
+              <span style={{ fontSize: 20, fontWeight: 900, color, fontFamily: FONT }}>{val.toFixed(0)}d</span>
             </div>
           );
         })}
@@ -1401,27 +1457,27 @@ function SlideFinancial2({ d }) {
 
   return (
     <div style={{ flex: 1, padding: "0 40px", display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>💰 CICLO FINANCEIRO — CLIENTES & FORNECEDORES</div>
-      <div style={{ fontSize: 13, color: C.muted, fontFamily: FONT, textAlign: "center" }}>Top 3 melhores e piores ciclos financeiros • {new Date().getFullYear()}</div>
+      <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>💰 PRAZOS — CLIENTES & FORNECEDORES</div>
+      <div style={{ fontSize: 13, color: C.muted, fontFamily: FONT, textAlign: "center" }}>Clientes: prazo de recebimento (menor = melhor) • Fornecedores: prazo de pagamento (maior = melhor) • {new Date().getFullYear()}</div>
 
       <div style={{ display: "flex", gap: 24, flex: 1, paddingTop: 8 }}>
-        {/* Clientes */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 12 }}>
-          <div style={{ fontSize: 20, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>🏢 CLIENTES</div>
+          <div style={{ fontSize: 20, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>🏢 CLIENTES (Prazo Recebimento)</div>
+          <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT, textAlign: "center" }}>Quanto menor, melhor — cliente paga mais rápido</div>
           <div style={{ display: "flex", gap: 16, flex: 1 }}>
-            <RankCard items={fin.topClientes} title="MELHORES CICLOS" type="top" />
-            <RankCard items={fin.worstClientes} title="PIORES CICLOS" type="worst" />
+            <RankCard items={fin.topClientes} title="PAGAM MAIS RÁPIDO" type="top" />
+            <RankCard items={fin.worstClientes} title="PAGAM MAIS LENTO" type="worst" />
           </div>
         </div>
 
         <div style={{ width: 2, background: C.panelBorder }} />
 
-        {/* Fornecedores */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 12 }}>
-          <div style={{ fontSize: 20, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>🏭 FORNECEDORES</div>
+          <div style={{ fontSize: 20, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>🏭 FORNECEDORES (Prazo Pagamento)</div>
+          <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT, textAlign: "center" }}>Quanto maior, melhor — mais tempo pra pagar</div>
           <div style={{ display: "flex", gap: 16, flex: 1 }}>
-            <RankCard items={fin.topFornecedores} title="MELHORES CICLOS" type="top" />
-            <RankCard items={fin.worstFornecedores} title="PIORES CICLOS" type="worst" />
+            <RankCard items={fin.topFornecedores} title="MAIOR PRAZO" type="top" />
+            <RankCard items={fin.worstFornecedores} title="MENOR PRAZO" type="worst" />
           </div>
         </div>
       </div>
@@ -1744,7 +1800,7 @@ export default function App() {
     showKPIs: true, showChart: true, showGauges: true,
     showTraders: true, showLinhas: true, showStatus: true,
     viewMode: "mes",
-    tvSlides: { 0: true, 1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true, 9: true, 10: true },
+    tvSlides: { 0: true, 1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true, 9: true, 10: true, 11: true },
   });
 
   const loadData = useCallback(async () => {
@@ -1821,7 +1877,7 @@ export default function App() {
 
   // ── TV MODE ──
   if (tvMode) {
-    const allSlides = [<SlideOverview d={d} />, <SlideTraders d={d} />, <SlideLinhas d={d} />, <SlideStatus d={d} />, <SlideGauges d={d} />, <SlideMargens d={d} />, <SlideProdutos d={d} />, <SlideGlobe d={d} />, <SlideOperacional d={d} />, <SlideFinancial1 d={d} />, <SlideFinancial2 d={d} />];
+    const allSlides = [<SlideOverview d={d} />, <SlideTraders d={d} />, <SlideLinhas d={d} />, <SlideStatus d={d} />, <SlideGauges d={d} />, <SlideMargens d={d} />, <SlideProdutos d={d} />, <SlideGlobe d={d} />, <SlideOperacional d={d} />, <SlideFinancial1 d={d} />, <SlideFinancialMensal d={d} />, <SlideFinancial2 d={d} />];
     const enabledIndices = SLIDE_NAMES.map((_, i) => i).filter(i => config.tvSlides[i]);
     const slides = enabledIndices.map(i => allSlides[i]);
     const slideNames = enabledIndices.map(i => SLIDE_NAMES[i]);
