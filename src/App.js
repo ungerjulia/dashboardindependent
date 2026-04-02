@@ -521,6 +521,18 @@ function processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financia
     statusData[r.status].lob += r.lob;
   });
 
+  // Next month status data
+  const nextMonth = currentMonth + 1;
+  const nextMonthRows = yearRows.filter(r => r.etdMonth === nextMonth);
+  const nextMonthStatusData = {};
+  nextMonthRows.forEach(r => {
+    if (!r.status) return;
+    if (!nextMonthStatusData[r.status]) nextMonthStatusData[r.status] = { count: 0, lob: 0 };
+    nextMonthStatusData[r.status].count += 1;
+    nextMonthStatusData[r.status].lob += r.lob;
+  });
+  const nextMonthName = nextMonth <= 11 ? MONTH_NAMES[nextMonth] : MONTH_NAMES[0];
+
   // Monthly LOB with meta for chart
   const monthlyWithMeta = monthlyLOB.map(m => ({
     ...m,
@@ -632,6 +644,8 @@ function processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financia
     totalOps: currentMonthRows.length,
     totalOpsAno: yearRows.length,
     statusData,
+    nextMonthStatusData,
+    nextMonthName,
     topMargens,
     bottomMargens,
     produtosPorLinha,
@@ -1152,23 +1166,35 @@ function SlideLinhas({ d }) {
 }
 
 function SlideStatus({ d }) {
-  const entries = Object.entries(d.statusData).sort((a, b) => b[1].lob - a[1].lob);
-  const statusColors = { "Embarcado": C.green, "Com Booking": C.cyan, "Sem Booking": C.amber, "Claim": C.red, "Stand by": C.muted };
-  return (
-    <div style={{ flex: 1, padding: "0 40px", display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>📦 STATUS DOS PROCESSOS — {d.currentMonthName.toUpperCase()}</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16, flex: 1, alignContent: "center" }}>
-        {entries.map(([status, data]) => {
-          const color = statusColors[status] || C.blue;
+  const entries = Object.entries(d.statusData || {}).sort((a, b) => b[1].lob - a[1].lob);
+  const nextEntries = Object.entries(d.nextMonthStatusData || {}).sort((a, b) => b[1].lob - a[1].lob);
+  const statusColors = { "Embarcado": C.green, "Com Booking": C.cyan, "Sem Booking": C.amber, "Claim": C.red, "Stand by": C.muted, "Aguardando_Ass_Contrato": C.blue };
+
+  const StatusCards = ({ data, title, size }) => (
+    <div>
+      <div style={{ fontSize: size === "big" ? 22 : 18, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center", marginBottom: 12 }}>{title}</div>
+      <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
+        {data.map(([status, sdata]) => {
+          const color = statusColors[status] || statusColors[status.replace(/\s/g, "_")] || C.blue;
           return (
-            <div key={status} style={{ background: `${color}12`, border: `1px solid ${color}30`, borderRadius: 12, padding: "24px", textAlign: "center" }}>
-              <div style={{ fontSize: 16, color: "#fff", fontWeight: 700, fontFamily: FONT, textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>{status}</div>
-              <div style={{ fontSize: 32, fontWeight: 900, color: "#fff", fontFamily: FONT, marginBottom: 4 }}>{fmtUSD(data.lob)}</div>
-              <div style={{ fontSize: 16, color, fontWeight: 700, fontFamily: FONT }}>{data.count} {data.count === 1 ? "processo" : "processos"}</div>
+            <div key={status} style={{ background: `${color}12`, border: `1px solid ${color}30`, borderRadius: 10, padding: size === "big" ? "18px 24px" : "12px 18px", textAlign: "center", minWidth: size === "big" ? 180 : 150, flex: 1 }}>
+              <div style={{ fontSize: size === "big" ? 14 : 12, color: "#fff", fontWeight: 700, fontFamily: FONT, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>{status.replace(/_/g, " ")}</div>
+              <div style={{ fontSize: size === "big" ? 28 : 22, fontWeight: 900, color: "#fff", fontFamily: FONT, marginBottom: 2 }}>{fmtUSD(sdata.lob)}</div>
+              <div style={{ fontSize: size === "big" ? 14 : 12, color, fontWeight: 700, fontFamily: FONT }}>{sdata.count} {sdata.count === 1 ? "processo" : "processos"}</div>
             </div>
           );
         })}
+        {data.length === 0 && <div style={{ color: C.muted, fontSize: 14, fontFamily: FONT }}>Sem processos</div>}
       </div>
+    </div>
+  );
+
+  return (
+    <div style={{ flex: 1, padding: "0 40px", display: "flex", flexDirection: "column", gap: 16, justifyContent: "center" }}>
+      <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>📦 STATUS DOS PROCESSOS</div>
+      <StatusCards data={entries} title={`${d.currentMonthName.toUpperCase()} (mês atual)`} size="big" />
+      <div style={{ height: 2, background: C.panelBorder, margin: "4px 0" }} />
+      <StatusCards data={nextEntries} title={`${d.nextMonthName.toUpperCase()} (próximo mês)`} size="small" />
     </div>
   );
 }
