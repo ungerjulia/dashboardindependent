@@ -295,7 +295,7 @@ function fmtUSD(v) {
 // ══════════════════════════════════════════════════════════════
 //  DATA PROCESSING
 // ══════════════════════════════════════════════════════════════
-function processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financial) {
+function processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financial, termosCliente, termosFornecedor) {
   const now = new Date();
   const currentMonth = now.getMonth();
   const currentYear = now.getFullYear();
@@ -665,19 +665,30 @@ function processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financia
         const pgtoKey = findK("pgtofornecedor") || findK("prazo_pgto") || findK("pgto") || keys[5];
         const recebKey = findK("recebimentocliente") || findK("prazo_recebimento") || findK("recebimento") || keys[6];
         const cicloKey = findK("ciclofinanceiro") || findK("ciclo") || keys[7];
+        const etaKey = keys.find(k => { const lk = k.toLowerCase().replace(/[_\s]/g, ""); return lk === "eta"; }) || findK("eta");
+        const termoFornKey = findK("termopgtofornecedor") || findK("termofornecedor") || findK("termopgto") || keys[9];
+        const termoCliKey = findK("termopgtocliente") || findK("termocliente") || findK("termorecebimento") || keys[10];
+        const valorCompraKey = findK("valorcompra") || findK("comprafornecedor") || keys[11];
+        const valorVendaKey = findK("valorvenda") || findK("vendacliente") || keys[12];
         const etd = parseETD(r[etdKey] || "");
+        const eta = etaKey ? parseETD(r[etaKey] || "") : null;
         const pgto = parseFloat((r[pgtoKey] || "").toString().replace(/[^\d.-]/g, "")) || 0;
         const receb = parseFloat((r[recebKey] || "").toString().replace(/[^\d.-]/g, "")) || 0;
         const ciclo = parseFloat((r[cicloKey] || "").toString().replace(/[^\d.-]/g, "")) || 0;
+        const valorCompra = parseMoney(r[valorCompraKey] || "0");
+        const valorVenda = parseMoney(r[valorVendaKey] || "0");
+        const termoForn = (r[termoFornKey] || "").trim();
+        const termoCli = (r[termoCliKey] || "").trim();
         return {
           processo: (r[processoKey] || "").trim(),
           trader: (r[traderKey] || "").trim(),
-          etd,
+          etd, eta,
           etdYear: etd ? etd.getFullYear() : -1,
           fornecedor: (r[fornecedorKey] || "").trim(),
           cliente: (r[clienteKey] || "").trim(),
           pgto, receb, ciclo,
           complete: pgto !== 0 && receb !== 0 && ciclo !== 0,
+          termoForn, termoCli, valorCompra, valorVenda,
         };
       });
 
@@ -732,6 +743,150 @@ function processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financia
       }
 
       return { cicloMedio, total: valid.length, byTrader, topClientes, worstClientes, topFornecedores, worstFornecedores, monthlyCiclo };
+    })(),
+
+    // ── Cash Flow Projection (next 30 days) ──
+    cashFlowData: (() => {
+      // Parse base termos de pgto
+      const parseTermosBase = (raw) => {
+        const map = {};
+        (raw || []).forEach(r => {
+          const keys = Object.keys(r);
+          const termName = (r[keys[0]] || "").trim();
+          if (!termName) return;
+          const pctStr = (s) => { const v = parseFloat((s || "0").toString().replace(/[^\d.-]/g, "")); return v > 1 ? v / 100 : v; };
+          const dayVal = (s) => parseFloat((s || "0").toString().replace(/[^\d.-]/g, "")) || 0;
+          map[termName.toUpperCase()] = {
+            prePgto: { diasETD: dayVal(r[keys[1]]), pct: pctStr(r[keys[2]]), diasETA: dayVal(r[keys[3]]), pctETA: pctStr(r[keys[4]]) },
+            balance: { diasETD: dayVal(r[keys[5]]), pct: pctStr(r[keys[6]]), diasETA: dayVal(r[keys[7]]), pctETA: pctStr(r[keys[8]]) },
+          };
+        });
+        return map;
+      };
+
+      const termosCliMap = parseTermosBase(termosCliente);
+      const termosFornMap = parseTermosBase(termosFornecedor);
+
+      // Find matching term (fuzzy)
+      const findTermo = (name, map) => {
+        if (!name) return null;
+        const upper = name.toUpperCase().trim();
+        if (map[upper]) return map[upper];
+        for (const [k, v] of Object.entries(map)) {
+          if (k.includes(upper) || upper.includes(k)) return v;
+        }
+        return null;
+      };
+
+      const today = new Date();
+      const in30 = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+      const events = [];
+
+      // Get finRows from financial data
+      const allFinRows = (financial || []).map(r => {
+        const keys = Object.keys(r);
+        const findK = (s) => keys.find(k => k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[_\s]/g, "").includes(s)) || "";
+        const etdKey = keys.find(k => { const lk = k.toLowerCase().replace(/[_\s]/g, ""); return lk === "etd"; }) || keys[2];
+        const etaKey = keys.find(k => { const lk = k.toLowerCase().replace(/[_\s]/g, ""); return lk === "eta"; }) || findK("eta");
+        const termoFornKey = findK("termopgtofornecedor") || findK("termofornecedor") || findK("termopgto") || keys[9];
+        const termoCliKey = findK("termopgtocliente") || findK("termocliente") || findK("termorecebimento") || keys[10];
+        const valorCompraKey = findK("valorcompra") || findK("comprafornecedor") || keys[11];
+        const valorVendaKey = findK("valorvenda") || findK("vendacliente") || keys[12];
+        return {
+          processo: (r[keys[0]] || "").trim(),
+          trader: (r[keys[1]] || "").trim(),
+          etd: parseETD(r[etdKey] || ""),
+          eta: etaKey ? parseETD(r[etaKey] || "") : null,
+          fornecedor: (r[keys[3]] || "").trim(),
+          cliente: (r[keys[4]] || "").trim(),
+          termoForn: (r[termoFornKey] || "").trim(),
+          termoCli: (r[termoCliKey] || "").trim(),
+          valorCompra: parseMoney(r[valorCompraKey] || "0"),
+          valorVenda: parseMoney(r[valorVendaKey] || "0"),
+        };
+      });
+
+      allFinRows.forEach(r => {
+        if (!r.etd) return;
+        const isDireto = (t) => !t || t.toUpperCase().includes("DIRETO");
+
+        // Fornecedor (SAÍDA)
+        if (!isDireto(r.termoForn) && r.valorCompra > 0) {
+          // Try fornecedor map first, then cliente map as fallback
+          const termo = findTermo(r.termoForn, termosFornMap) || findTermo(r.termoForn, termosCliMap);
+          if (termo) {
+            // Pré-pagamento
+            if (termo.prePgto.pct > 0) {
+              const refDate = termo.prePgto.diasETA !== 0 && r.eta ? r.eta : r.etd;
+              const dias = termo.prePgto.diasETA !== 0 ? termo.prePgto.diasETA : termo.prePgto.diasETD;
+              const dt = new Date(refDate.getTime() + dias * 24 * 60 * 60 * 1000);
+              const valor = r.valorCompra * termo.prePgto.pct;
+              if (dt >= today && dt <= in30 && valor > 0) {
+                events.push({ date: dt, tipo: "saida", subtipo: "Pré-pgto Fornecedor", valor, processo: r.processo, nome: r.fornecedor, trader: r.trader });
+              }
+            }
+            // Balance
+            const balPct = termo.balance.pct > 0 ? termo.balance.pct : (1 - (termo.prePgto.pct || 0));
+            if (balPct > 0) {
+              const refDate = termo.balance.diasETA !== 0 && r.eta ? r.eta : r.etd;
+              const dias = termo.balance.diasETA !== 0 ? termo.balance.diasETA : termo.balance.diasETD;
+              const dt = new Date(refDate.getTime() + dias * 24 * 60 * 60 * 1000);
+              const valor = r.valorCompra * balPct;
+              if (dt >= today && dt <= in30 && valor > 0) {
+                events.push({ date: dt, tipo: "saida", subtipo: "Saldo Fornecedor", valor, processo: r.processo, nome: r.fornecedor, trader: r.trader });
+              }
+            }
+          }
+        }
+
+        // Cliente (ENTRADA)
+        if (!isDireto(r.termoCli) && r.valorVenda > 0) {
+          const termo = findTermo(r.termoCli, termosCliMap) || findTermo(r.termoCli, termosFornMap);
+          if (termo) {
+            // Pré-pagamento
+            if (termo.prePgto.pct > 0) {
+              const refDate = termo.prePgto.diasETA !== 0 && r.eta ? r.eta : r.etd;
+              const dias = termo.prePgto.diasETA !== 0 ? termo.prePgto.diasETA : termo.prePgto.diasETD;
+              const dt = new Date(refDate.getTime() + dias * 24 * 60 * 60 * 1000);
+              const valor = r.valorVenda * termo.prePgto.pct;
+              if (dt >= today && dt <= in30 && valor > 0) {
+                events.push({ date: dt, tipo: "entrada", subtipo: "Pré-pgto Cliente", valor, processo: r.processo, nome: r.cliente, trader: r.trader });
+              }
+            }
+            // Balance
+            const balPct = termo.balance.pct > 0 ? termo.balance.pct : (1 - (termo.prePgto.pct || 0));
+            if (balPct > 0) {
+              const refDate = termo.balance.diasETA !== 0 && r.eta ? r.eta : r.etd;
+              const dias = termo.balance.diasETA !== 0 ? termo.balance.diasETA : termo.balance.diasETD;
+              const dt = new Date(refDate.getTime() + dias * 24 * 60 * 60 * 1000);
+              const valor = r.valorVenda * balPct;
+              if (dt >= today && dt <= in30 && valor > 0) {
+                events.push({ date: dt, tipo: "entrada", subtipo: "Saldo Cliente", valor, processo: r.processo, nome: r.cliente, trader: r.trader });
+              }
+            }
+          }
+        }
+      });
+
+      events.sort((a, b) => a.date - b.date);
+      const totalEntradas = events.filter(e => e.tipo === "entrada").reduce((s, e) => s + e.valor, 0);
+      const totalSaidas = events.filter(e => e.tipo === "saida").reduce((s, e) => s + e.valor, 0);
+
+      // Weekly aggregation
+      const weeks = [];
+      for (let i = 0; i < 4; i++) {
+        const wStart = new Date(today.getTime() + i * 7 * 24 * 60 * 60 * 1000);
+        const wEnd = new Date(wStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+        const wEvents = events.filter(e => e.date >= wStart && e.date < wEnd);
+        const entradas = wEvents.filter(e => e.tipo === "entrada").reduce((s, e) => s + e.valor, 0);
+        const saidas = wEvents.filter(e => e.tipo === "saida").reduce((s, e) => s + e.valor, 0);
+        weeks.push({
+          label: `${wStart.getDate().toString().padStart(2, "0")}/${(wStart.getMonth() + 1).toString().padStart(2, "0")} - ${wEnd.getDate().toString().padStart(2, "0")}/${(wEnd.getMonth() + 1).toString().padStart(2, "0")}`,
+          entradas, saidas, saldo: entradas - saidas,
+        });
+      }
+
+      return { events, totalEntradas, totalSaidas, saldo: totalEntradas - totalSaidas, weeks, totalProcessos: allFinRows.filter(r => r.etd).length };
     })(),
 
     currentMonthName: MONTH_NAMES[currentMonth],
@@ -957,7 +1112,7 @@ function SettingsPanel({ config, setConfig, onClose }) {
     { key: "viewMode", value: "mes", label: "Visão Mensal" },
     { key: "viewMode", value: "ano", label: "Visão Anual" },
   ];
-  const slideIcons = ["📊", "🏆", "🏷️", "📦", "🎯", "📈", "🥧", "🌍", "⚙️", "💰", "📅", "🏢"];
+  const slideIcons = ["📊", "🏆", "🏷️", "📦", "🎯", "📈", "🥧", "🌍", "⚙️", "💰", "📅", "🏢", "💸", "📋"];
 
   return (
     <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: 340, background: C.panel, borderLeft: `1px solid ${C.panelBorder}`, zIndex: 1000, padding: "20px", display: "flex", flexDirection: "column", gap: 14, overflowY: "auto", boxShadow: "-4px 0 20px rgba(0,0,0,0.5)" }}>
@@ -1008,7 +1163,7 @@ function SettingsPanel({ config, setConfig, onClose }) {
 // ══════════════════════════════════════════════════════════════
 //  CAROUSEL SLIDES
 // ══════════════════════════════════════════════════════════════
-const SLIDE_NAMES = ["Visão Geral", "Ranking de Traders", "Linhas de Negócio", "Status dos Processos", "Metas Globais", "Margens de Venda", "Produtos por Linha", "Operações Globais", "Análise Operacional", "Ciclo Financeiro", "Ciclo Mensal", "Prazos Clientes & Fornecedores"];
+const SLIDE_NAMES = ["Visão Geral", "Ranking de Traders", "Linhas de Negócio", "Status dos Processos", "Metas Globais", "Margens de Venda", "Produtos por Linha", "Operações Globais", "Análise Operacional", "Ciclo Financeiro", "Ciclo Mensal", "Prazos Clientes & Fornecedores", "Fluxo de Caixa", "Fluxo Detalhado"];
 const SLIDE_INTERVAL = 20000;
 const SLIDE_TIMES = { 7: 30000 }; // Slide 7 (Globe) = 30s, others = 20s
 
@@ -1511,6 +1666,103 @@ function SlideFinancial2({ d }) {
   );
 }
 
+function SlideFluxoCaixa1({ d }) {
+  const cf = d.cashFlowData;
+  const saldoColor = cf.saldo >= 0 ? C.green : C.red;
+
+  return (
+    <div style={{ flex: 1, padding: "0 40px", display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>💸 PROJEÇÃO DE FLUXO DE CAIXA</div>
+      <div style={{ fontSize: 13, color: C.muted, fontFamily: FONT, textAlign: "center" }}>Próximos 30 dias • {cf.events.length} eventos projetados</div>
+
+      {/* KPI cards */}
+      <div style={{ display: "flex", gap: 16, justifyContent: "center" }}>
+        <div style={{ background: `${C.green}12`, border: `1px solid ${C.green}30`, borderRadius: 12, padding: "16px 30px", textAlign: "center", flex: 1 }}>
+          <div style={{ fontSize: 13, color: C.muted, fontFamily: FONT, marginBottom: 4 }}>📥 ENTRADAS (Clientes)</div>
+          <div style={{ fontSize: 32, fontWeight: 900, color: C.green, fontFamily: FONT }}>{fmtUSD(cf.totalEntradas)}</div>
+        </div>
+        <div style={{ background: `${C.red}12`, border: `1px solid ${C.red}30`, borderRadius: 12, padding: "16px 30px", textAlign: "center", flex: 1 }}>
+          <div style={{ fontSize: 13, color: C.muted, fontFamily: FONT, marginBottom: 4 }}>📤 SAÍDAS (Fornecedores)</div>
+          <div style={{ fontSize: 32, fontWeight: 900, color: C.red, fontFamily: FONT }}>{fmtUSD(cf.totalSaidas)}</div>
+        </div>
+        <div style={{ background: `${saldoColor}12`, border: `2px solid ${saldoColor}50`, borderRadius: 12, padding: "16px 30px", textAlign: "center", flex: 1 }}>
+          <div style={{ fontSize: 13, color: C.muted, fontFamily: FONT, marginBottom: 4 }}>💰 SALDO PROJETADO</div>
+          <div style={{ fontSize: 36, fontWeight: 900, color: saldoColor, fontFamily: FONT }}>{cf.saldo >= 0 ? "+" : ""}{fmtUSD(cf.saldo)}</div>
+        </div>
+      </div>
+
+      {/* Weekly bars */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10, justifyContent: "center" }}>
+        <div style={{ fontSize: 18, fontWeight: 800, color: "#fff", fontFamily: FONT, textAlign: "center" }}>Visão Semanal</div>
+        {cf.weeks.map((w, i) => {
+          const maxVal = Math.max(...cf.weeks.map(wk => Math.max(wk.entradas, wk.saidas))) || 1;
+          return (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", background: `${C.panel}`, border: `1px solid ${C.panelBorder}`, borderRadius: 8 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: C.muted, fontFamily: FONT, width: 100 }}>Sem {i + 1}<br/><span style={{ fontSize: 10 }}>{w.label}</span></span>
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 10, color: C.green, width: 50 }}>Entrada</span>
+                  <div style={{ flex: 1, height: 10, background: C.panelBorder, borderRadius: 5, overflow: "hidden" }}>
+                    <div style={{ width: `${(w.entradas / maxVal) * 100}%`, height: "100%", background: C.green, borderRadius: 5 }} />
+                  </div>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: C.green, fontFamily: FONT, width: 80, textAlign: "right" }}>{fmtUSD(w.entradas)}</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 10, color: C.red, width: 50 }}>Saída</span>
+                  <div style={{ flex: 1, height: 10, background: C.panelBorder, borderRadius: 5, overflow: "hidden" }}>
+                    <div style={{ width: `${(w.saidas / maxVal) * 100}%`, height: "100%", background: C.red, borderRadius: 5 }} />
+                  </div>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: C.red, fontFamily: FONT, width: 80, textAlign: "right" }}>{fmtUSD(w.saidas)}</span>
+                </div>
+              </div>
+              <div style={{ width: 90, textAlign: "right" }}>
+                <span style={{ fontSize: 14, fontWeight: 800, color: w.saldo >= 0 ? C.green : C.red, fontFamily: FONT }}>{w.saldo >= 0 ? "+" : ""}{fmtUSD(w.saldo)}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function SlideFluxoCaixa2({ d }) {
+  const cf = d.cashFlowData;
+  const entradas = cf.events.filter(e => e.tipo === "entrada").slice(0, 12);
+  const saidas = cf.events.filter(e => e.tipo === "saida").slice(0, 12);
+
+  const EventList = ({ events, title, color, icon }) => (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ fontSize: 18, fontWeight: 800, color, fontFamily: FONT, textAlign: "center", marginBottom: 4 }}>{icon} {title}</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4, overflow: "auto", maxHeight: 500 }}>
+        {events.map((e, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: `${color}08`, borderLeft: `3px solid ${color}`, borderRadius: 6, fontSize: 12, fontFamily: FONT }}>
+            <span style={{ color: C.muted, width: 55, flexShrink: 0, fontWeight: 600 }}>{e.date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}</span>
+            <div style={{ flex: 1, overflow: "hidden" }}>
+              <div style={{ color: "#fff", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.nome}</div>
+              <div style={{ color: C.muted, fontSize: 10 }}>{e.subtipo} • {e.processo} • {e.trader}</div>
+            </div>
+            <span style={{ fontWeight: 800, color, fontSize: 14, flexShrink: 0 }}>{fmtUSD(e.valor)}</span>
+          </div>
+        ))}
+        {events.length === 0 && <div style={{ color: C.muted, textAlign: "center", padding: 20 }}>Sem eventos projetados</div>}
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ flex: 1, padding: "0 30px", display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>💸 FLUXO DE CAIXA — DETALHADO</div>
+      <div style={{ fontSize: 13, color: C.muted, fontFamily: FONT, textAlign: "center" }}>Próximos 30 dias • Eventos ordenados por data</div>
+      <div style={{ display: "flex", gap: 20, flex: 1, paddingTop: 8 }}>
+        <EventList events={entradas} title="RECEBIMENTOS" color={C.green} icon="📥" />
+        <div style={{ width: 2, background: C.panelBorder }} />
+        <EventList events={saidas} title="PAGAMENTOS" color={C.red} icon="📤" />
+      </div>
+    </div>
+  );
+}
+
 function SlideOperacional({ d }) {
   const op = d.operationalData;
   const etd = op.etdAnalysis;
@@ -1826,18 +2078,20 @@ export default function App() {
     showKPIs: true, showChart: true, showGauges: true,
     showTraders: true, showLinhas: true, showStatus: true,
     viewMode: "mes",
-    tvSlides: { 0: true, 1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true, 9: true, 10: true, 11: true },
+    tvSlides: { 0: true, 1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true, 9: true, 10: true, 11: true, 12: true, 13: true },
   });
 
   const loadData = useCallback(async () => {
     try {
-      const [lob, metasTrader, metaLinha, metaGlobal, operacao, financial] = await Promise.all([
+      const [lob, metasTrader, metaLinha, metaGlobal, operacao, financial, termosCliente, termosFornecedor] = await Promise.all([
         fetchSheet("LOB"), fetchSheet("Metas_Trader"),
         fetchSheet("Meta_linhadenegocio"), fetchSheet("Meta_Global"),
         fetchSheet("Operação").catch(() => fetchSheet("Operacao").catch(() => [])),
         fetchSheet("Fiancial").catch(() => fetchSheet("Financial").catch(() => [])),
+        fetchSheet("Base termos de pgto").catch(() => []),
+        fetchSheet("Base termos de pgto").catch(() => []),
       ]);
-      const processed = processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financial);
+      const processed = processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financial, termosCliente, termosFornecedor);
       setData(processed);
       setLastUpdate(new Date());
       setError(null);
@@ -1903,7 +2157,7 @@ export default function App() {
 
   // ── TV MODE ──
   if (tvMode) {
-    const allSlides = [<SlideOverview d={d} />, <SlideTraders d={d} />, <SlideLinhas d={d} />, <SlideStatus d={d} />, <SlideGauges d={d} />, <SlideMargens d={d} />, <SlideProdutos d={d} />, <SlideGlobe d={d} />, <SlideOperacional d={d} />, <SlideFinancial1 d={d} />, <SlideFinancialMensal d={d} />, <SlideFinancial2 d={d} />];
+    const allSlides = [<SlideOverview d={d} />, <SlideTraders d={d} />, <SlideLinhas d={d} />, <SlideStatus d={d} />, <SlideGauges d={d} />, <SlideMargens d={d} />, <SlideProdutos d={d} />, <SlideGlobe d={d} />, <SlideOperacional d={d} />, <SlideFinancial1 d={d} />, <SlideFinancialMensal d={d} />, <SlideFinancial2 d={d} />, <SlideFluxoCaixa1 d={d} />, <SlideFluxoCaixa2 d={d} />];
     const enabledIndices = SLIDE_NAMES.map((_, i) => i).filter(i => config.tvSlides[i]);
     const slides = enabledIndices.map(i => allSlides[i]);
     const slideNames = enabledIndices.map(i => SLIDE_NAMES[i]);
