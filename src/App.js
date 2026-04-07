@@ -1967,149 +1967,123 @@ function SlideRespStatus({ d }) {
 }
 
 function SlideGlobe({ d }) {
-  const mountRef = useRef(null);
+  const canvasRef = useRef(null);
+  const frameRef = useRef(null);
 
   useEffect(() => {
-    const mount = mountRef.current;
-    if (!mount) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    let stopped = false;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const W = 750, H = 520;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    canvas.style.width = W + "px";
+    canvas.style.height = H + "px";
+    const ctx = canvas.getContext("2d");
+    ctx.scale(dpr, dpr);
+    const cxG = W / 2, cyG = H / 2, RG = 220;
+    let rot = -0.8;
 
-    let animId = null;
-    let renderer = null;
-    let destroyed = false;
+    // Load earth texture once
+    var earthImg = null;
+    var earthData = null;
+    var img = new Image();
+    img.crossOrigin = "anonymous";
+    img.src = "https://unpkg.com/three-globe@2.31.1/example/img/earth-blue-marble.jpg";
+    img.onload = function() {
+      var oc = document.createElement("canvas");
+      oc.width = 360; oc.height = 180;
+      var octx = oc.getContext("2d");
+      octx.drawImage(img, 0, 0, 360, 180);
+      earthData = octx.getImageData(0, 0, 360, 180);
+      earthImg = true;
+    };
 
-    // Check if Three.js already loaded
-    function init() {
-      if (destroyed) return;
-      const THREE = window.THREE;
-      if (!THREE) return;
+    function proj(lat, lng) {
+      var phi = (90 - lat) * Math.PI / 180;
+      var theta = (lng * Math.PI / 180) + rot;
+      return { x: cxG + (-RG * Math.sin(phi) * Math.cos(theta)), y: cyG - (RG * Math.cos(phi)), z: RG * Math.sin(phi) * Math.sin(theta) };
+    }
 
-      const W = mount.clientWidth || 700;
-      const H = mount.clientHeight || 500;
+    function draw() {
+      if (stopped) return;
+      ctx.clearRect(0, 0, W, H);
 
-      const scene = new THREE.Scene();
-      const camera = new THREE.PerspectiveCamera(45, W / H, 0.1, 1000);
-      camera.position.z = 2.6;
+      // Atmospheric glow
+      var glow = ctx.createRadialGradient(cxG, cyG, RG * 0.9, cxG, cyG, RG * 1.25);
+      glow.addColorStop(0, "rgba(0,229,255,0.05)");
+      glow.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = glow;
+      ctx.fillRect(0, 0, W, H);
 
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-      renderer.setSize(W, H);
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      renderer.setClearColor(0x000000, 0);
-      mount.innerHTML = "";
-      mount.appendChild(renderer.domElement);
-
-      // Globe with Earth texture
-      const textureLoader = new THREE.TextureLoader();
-      const earthTex = textureLoader.load("https://unpkg.com/three-globe@2.31.1/example/img/earth-blue-marble.jpg");
-      const globe = new THREE.Mesh(
-        new THREE.SphereGeometry(1, 64, 64),
-        new THREE.MeshPhongMaterial({ map: earthTex, bumpScale: 0.02, specular: new THREE.Color(0x222222), shininess: 10 })
-      );
-      scene.add(globe);
-
-      // Atmosphere
-      scene.add(new THREE.Mesh(
-        new THREE.SphereGeometry(1.03, 64, 64),
-        new THREE.MeshBasicMaterial({ color: 0x2979ff, transparent: true, opacity: 0.07, side: THREE.BackSide })
-      ));
-
-      // Lights
-      scene.add(new THREE.AmbientLight(0x606060, 1.5));
-      const dLight = new THREE.DirectionalLight(0xffffff, 1);
-      dLight.position.set(5, 3, 5);
-      scene.add(dLight);
-
-      // Lat/Lng to 3D
-      function ll2v(lat, lng, r) {
-        const phi = (90 - lat) * Math.PI / 180;
-        const theta = (lng + 180) * Math.PI / 180;
-        return new THREE.Vector3(-r * Math.sin(phi) * Math.cos(theta), r * Math.cos(phi), r * Math.sin(phi) * Math.sin(theta));
+      if (earthData) {
+        // Render textured globe via Canvas 2D pixel mapping
+        var step = 3;
+        for (var py = cyG - RG; py < cyG + RG; py += step) {
+          for (var px = cxG - RG; px < cxG + RG; px += step) {
+            var dx = px - cxG, dy = py - cyG;
+            var dd = dx * dx + dy * dy;
+            if (dd > RG * RG) continue;
+            var zz = Math.sqrt(RG * RG - dd);
+            var lat = Math.asin((cyG - py) / RG) * 180 / Math.PI;
+            var lng = Math.atan2(-dx, zz) * 180 / Math.PI - rot * 180 / Math.PI;
+            var u = Math.floor(((((lng % 360) + 360) % 360) / 360) * 360) % 360;
+            var v = Math.floor(((90 - lat) / 180) * 180) % 180;
+            var idx = (v * 360 + u) * 4;
+            var shade = 0.6 + 0.4 * (zz / RG);
+            ctx.fillStyle = "rgb(" + Math.floor(earthData.data[idx] * shade * 0.85) + "," + Math.floor(earthData.data[idx+1] * shade * 0.85) + "," + Math.floor(earthData.data[idx+2] * shade * 0.85) + ")";
+            ctx.fillRect(px, py, step, step);
+          }
+        }
+      } else {
+        ctx.beginPath();
+        ctx.arc(cxG, cyG, RG, 0, Math.PI * 2);
+        var og = ctx.createRadialGradient(cxG - RG * 0.3, cyG - RG * 0.3, 0, cxG, cyG, RG);
+        og.addColorStop(0, "#0f1e33"); og.addColorStop(1, "#0a1220");
+        ctx.fillStyle = og; ctx.fill();
       }
 
-      // Marker group (rotates with globe)
-      const group = new THREE.Group();
+      // Edge
+      ctx.beginPath();
+      ctx.arc(cxG, cyG, RG, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(0,229,255,0.15)"; ctx.lineWidth = 2; ctx.stroke();
 
-      // Brazil marker
-      const brPos = ll2v(-14.24, -51.93, 1.015);
-      const brMarker = new THREE.Mesh(new THREE.SphereGeometry(0.022, 16, 16), new THREE.MeshBasicMaterial({ color: 0x00e676 }));
-      brMarker.position.copy(brPos);
-      group.add(brMarker);
-      const brGlow = new THREE.Mesh(new THREE.SphereGeometry(0.045, 16, 16), new THREE.MeshBasicMaterial({ color: 0x00e676, transparent: true, opacity: 0.25 }));
-      brGlow.position.copy(brPos);
-      group.add(brGlow);
+      // Brazil
+      var br = proj(-14.24, -51.93);
+      if (br.z > 0) {
+        ctx.beginPath(); ctx.arc(br.x, br.y, 7, 0, Math.PI * 2);
+        ctx.fillStyle = "#00e676"; ctx.shadowColor = "#00e676"; ctx.shadowBlur = 12; ctx.fill(); ctx.shadowBlur = 0;
+        ctx.font = "bold 12px " + FONT; ctx.fillStyle = "#00e676"; ctx.textAlign = "center";
+        ctx.fillText("BRASIL", br.x, br.y - 13);
+      }
 
-      // Country markers and arcs
+      // Markers
       d.globeData.forEach(function(item) {
         var coords = getCountryCoords(item.pais);
         if (!coords) return;
-        var isImpo = item.tipo === "IMPO";
-        var color = isImpo ? 0xffffff : 0x2979ff;
-        var pos = ll2v(coords[0], coords[1], 1.015);
-        var sz = 0.014 + Math.min(item.count * 0.004, 0.016);
-
-        // Marker
-        var marker = new THREE.Mesh(new THREE.SphereGeometry(sz, 12, 12), new THREE.MeshBasicMaterial({ color: color }));
-        marker.position.copy(pos);
-        group.add(marker);
-
-        // Glow
-        var glow = new THREE.Mesh(new THREE.SphereGeometry(sz * 2.5, 12, 12), new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: 0.15 }));
-        glow.position.copy(pos);
-        group.add(glow);
-
-        // Arc from Brazil
-        var mid = new THREE.Vector3().addVectors(brPos, pos).multiplyScalar(0.5);
-        var dist = brPos.distanceTo(pos);
-        mid.normalize().multiplyScalar(1 + dist * 0.35);
-        var curve = new THREE.QuadraticBezierCurve3(brPos, mid, pos);
-        var arcLine = new THREE.Line(
-          new THREE.BufferGeometry().setFromPoints(curve.getPoints(40)),
-          new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: 0.3 })
-        );
-        group.add(arcLine);
+        var p = proj(coords[0], coords[1]);
+        if (p.z <= 0) return;
+        var color = item.tipo === "IMPO" ? "#ffffff" : "#2979ff";
+        if (br.z > 0) {
+          ctx.beginPath(); ctx.strokeStyle = color + "30"; ctx.lineWidth = 1.5;
+          var mX = (br.x + p.x) / 2, mY = Math.min(br.y, p.y) - 35 - Math.abs(br.x - p.x) * 0.1;
+          ctx.moveTo(br.x, br.y); ctx.quadraticCurveTo(mX, mY, p.x, p.y); ctx.stroke();
+        }
+        var sz = 3 + Math.min(item.count * 1.5, 7);
+        ctx.beginPath(); ctx.arc(p.x, p.y, sz, 0, Math.PI * 2); ctx.fillStyle = color + "20"; ctx.fill();
+        ctx.beginPath(); ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2); ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 5; ctx.fill(); ctx.shadowBlur = 0;
+        ctx.font = "bold 10px " + FONT; ctx.fillStyle = color; ctx.textAlign = "center"; ctx.fillText(item.pais, p.x, p.y - sz - 3);
       });
 
-      scene.add(group);
-
-      // Start facing Americas
-      globe.rotation.y = -1.5;
-      group.rotation.y = -1.5;
-
-      // Animation loop
-      function animate() {
-        if (destroyed || !renderer) return;
-        try {
-          globe.rotation.y += 0.0015;
-          group.rotation.y += 0.0015;
-          renderer.render(scene, camera);
-          animId = requestAnimationFrame(animate);
-        } catch(e) { destroyed = true; }
-      }
-      animate();
+      rot += 0.003;
+      frameRef.current = requestAnimationFrame(draw);
     }
-
-    // Load Three.js if not already loaded
-    if (window.THREE) {
-      init();
-    } else {
-      var script = document.createElement("script");
-      script.src = "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js";
-      script.onload = init;
-      document.head.appendChild(script);
-    }
+    draw();
 
     return function() {
-      destroyed = true;
-      if (animId) cancelAnimationFrame(animId);
-      try {
-        if (renderer && renderer.domElement) {
-          renderer.dispose();
-          if (mount && mount.contains(renderer.domElement)) {
-            mount.removeChild(renderer.domElement);
-          }
-        }
-      } catch(e) {}
-      renderer = null;
-      if (mount) mount.innerHTML = "";
+      stopped = true;
+      if (frameRef.current) cancelAnimationFrame(frameRef.current);
     };
   }, [d.globeData]);
 
@@ -2134,7 +2108,9 @@ function SlideGlobe({ d }) {
           ); }) : <div style={{ fontSize: 12, color: C.muted }}>Sem dados no mês</div>}
           {impoData.length > 0 && <div style={{ fontSize: 14, fontWeight: 800, color: "#fff", fontFamily: FONT, marginTop: 4, paddingTop: 6, borderTop: "2px solid " + C.panelBorder }}>Total: {fmtUSD(totalImpo)}</div>}
         </div>
-        <div ref={mountRef} style={{ flex: 1, minHeight: 450 }} />
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <canvas ref={canvasRef} style={{ maxWidth: "100%", maxHeight: "100%" }} />
+        </div>
         <div style={{ width: 220, display: "flex", flexDirection: "column", gap: 6, justifyContent: "center", padding: "0 8px" }}>
           <div style={{ fontSize: 16, fontWeight: 800, color: C.blue, fontFamily: FONT, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ width: 12, height: 12, background: C.blue, borderRadius: "50%", display: "inline-block", boxShadow: "0 0 6px " + C.blue + "80" }} /> EXPORTAÇÃO
@@ -2151,6 +2127,7 @@ function SlideGlobe({ d }) {
     </div>
   );
 }
+
 
 function SlideProdutos({ d }) {
   const linhas = Object.entries(d.produtosPorLinha);
