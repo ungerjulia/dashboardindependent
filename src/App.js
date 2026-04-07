@@ -319,13 +319,14 @@ function processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financia
     if (lk === "lob") headerMap.lob = k;
     if (lk === "tipo") headerMap.tipo = k;
     if (lk === "pais" || lk === "país") headerMap.pais = k;
+    if (lk.includes("contrato") || lk.includes("datacontrato") || lk.includes("contratoassinado")) headerMap.dataContrato = k;
   });
 
   const rows = lob.map(r => {
     const etd = parseETD(r[headerMap.etd] || "");
     return {
       processo: r[headerMap.processo] || "",
-      responsavel: r[headerMap.responsavel] || "",
+      responsavel: (r[headerMap.responsavel] || "").trim(),
       trader: (r[headerMap.trader] || "").trim(),
       linha: (r[headerMap.linha] || "").trim(),
       status: (r[headerMap.status] || "").trim(),
@@ -339,6 +340,7 @@ function processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financia
       lob: parseMoney(r[headerMap.lob] || "0"),
       tipo: (() => { const t = (r[headerMap.tipo] || "").trim().toLowerCase(); if (t.startsWith("import")) return "IMPO"; if (t.startsWith("export")) return "EXPO"; return t.toUpperCase(); })(),
       pais: (r[headerMap.pais] || "").trim(),
+      dataContrato: headerMap.dataContrato ? parseETD(r[headerMap.dataContrato] || "") : null,
     };
   });
 
@@ -660,6 +662,32 @@ function processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financia
     produtosPorLinha,
     globeData,
     operationalData,
+
+    // Responsavel x Status analysis (current month from LOB)
+    respStatusData: (() => {
+      const statusGroups = { "Sem Booking": [], "Com Booking": [], "Embarcado": [] };
+      currentMonthRows.forEach(r => {
+        const st = r.status.toLowerCase();
+        if (st.includes("sem booking")) statusGroups["Sem Booking"].push(r);
+        else if (st.includes("com booking")) statusGroups["Com Booking"].push(r);
+        else if (st.includes("embarcado")) statusGroups["Embarcado"].push(r);
+      });
+      const byResp = (rows) => {
+        const map = {};
+        rows.forEach(r => {
+          const resp = r.responsavel || "Sem resp.";
+          if (!map[resp]) map[resp] = { name: resp, count: 0, processos: [] };
+          map[resp].count++;
+          map[resp].processos.push(r);
+        });
+        return Object.values(map).sort((a, b) => b.count - a.count);
+      };
+      return {
+        semBooking: { total: statusGroups["Sem Booking"].length, byResp: byResp(statusGroups["Sem Booking"]), rows: statusGroups["Sem Booking"] },
+        comBooking: { total: statusGroups["Com Booking"].length, byResp: byResp(statusGroups["Com Booking"]) },
+        embarcado: { total: statusGroups["Embarcado"].length, byResp: byResp(statusGroups["Embarcado"]) },
+      };
+    })(),
 
     // ── Financial Analysis ──
     financialData: (() => {
@@ -1121,7 +1149,7 @@ function SettingsPanel({ config, setConfig, onClose }) {
     { key: "viewMode", value: "mes", label: "Visão Mensal" },
     { key: "viewMode", value: "ano", label: "Visão Anual" },
   ];
-  const slideIcons = ["📊", "🏆", "🏷️", "📦", "🎯", "📈", "🥧", "🌍", "⚙️", "💰", "📅", "🏢", "💸", "📋"];
+  const slideIcons = ["📊", "🏆", "🏷️", "📦", "🎯", "📈", "🥧", "🌍", "⚙️", "👥", "💰", "📅", "🏢", "💸", "📋"];
 
   return (
     <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: 340, background: C.panel, borderLeft: `1px solid ${C.panelBorder}`, zIndex: 1000, padding: "20px", display: "flex", flexDirection: "column", gap: 14, overflowY: "auto", boxShadow: "-4px 0 20px rgba(0,0,0,0.5)" }}>
@@ -1172,7 +1200,7 @@ function SettingsPanel({ config, setConfig, onClose }) {
 // ══════════════════════════════════════════════════════════════
 //  CAROUSEL SLIDES
 // ══════════════════════════════════════════════════════════════
-const SLIDE_NAMES = ["Visão Geral", "Ranking de Traders", "Linhas de Negócio", "Status dos Processos", "Metas Globais", "Margens de Venda", "Produtos por Linha", "Operações Globais", "Análise Operacional", "Ciclo Financeiro", "Ciclo Mensal", "Prazos Clientes & Fornecedores", "Fluxo de Caixa", "Fluxo Detalhado"];
+const SLIDE_NAMES = ["Visão Geral", "Ranking de Traders", "Linhas de Negócio", "Status dos Processos", "Metas Globais", "Margens de Venda", "Produtos por Linha", "Operações Globais", "Análise Operacional", "Processos por Responsável", "Ciclo Financeiro", "Ciclo Mensal", "Prazos Clientes & Fornecedores", "Fluxo de Caixa", "Fluxo Detalhado"];
 const SLIDE_INTERVAL = 20000;
 const SLIDE_TIMES = { 7: 30000 }; // Slide 7 (Globe) = 30s, others = 20s
 
@@ -1874,6 +1902,55 @@ function SlideOperacional({ d }) {
   );
 }
 
+function SlideRespStatus({ d }) {
+  const rs = d.respStatusData;
+
+  const StatusBlock = ({ title, icon, color, data, showContrato }) => (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ textAlign: "center" }}>
+        <div style={{ fontSize: 16, fontWeight: 800, color, fontFamily: FONT }}>{icon} {title}</div>
+        <div style={{ fontSize: 36, fontWeight: 900, color: "#fff", fontFamily: FONT }}>{data.total}</div>
+        <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT }}>processos</div>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {data.byResp.map(r => {
+          const comContrato = showContrato && r.processos ? r.processos.filter(p => p.dataContrato).length : 0;
+          const semContrato = showContrato ? r.count - comContrato : 0;
+          return (
+            <div key={r.name} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: `${color}08`, borderLeft: `3px solid ${color}`, borderRadius: 6 }}>
+              <span style={{ fontSize: 24, fontWeight: 900, color, fontFamily: FONT, width: 32, textAlign: "center" }}>{r.count}</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#fff", fontFamily: FONT }}>{r.name}</div>
+                {showContrato && (
+                  <div style={{ fontSize: 10, color: C.muted, fontFamily: FONT }}>
+                    {comContrato > 0 && <span style={{ color: C.green }}>✓ {comContrato} c/ contrato </span>}
+                    {semContrato > 0 && <span style={{ color: C.amber }}>⚠ {semContrato} s/ contrato</span>}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        {data.byResp.length === 0 && <div style={{ color: C.muted, textAlign: "center", fontSize: 12 }}>Nenhum processo</div>}
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ flex: 1, padding: "0 30px", display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>👥 PROCESSOS POR RESPONSÁVEL — {d.currentMonthName.toUpperCase()}</div>
+      <div style={{ fontSize: 13, color: C.muted, fontFamily: FONT, textAlign: "center" }}>Distribuição de processos por status e responsável operacional</div>
+      <div style={{ display: "flex", gap: 20, flex: 1, paddingTop: 8 }}>
+        <StatusBlock title="SEM BOOKING" icon="📋" color={C.amber} data={rs.semBooking} showContrato={true} />
+        <div style={{ width: 2, background: C.panelBorder }} />
+        <StatusBlock title="COM BOOKING" icon="📦" color={C.cyan} data={rs.comBooking} showContrato={false} />
+        <div style={{ width: 2, background: C.panelBorder }} />
+        <StatusBlock title="EMBARCADO" icon="🚢" color={C.green} data={rs.embarcado} showContrato={false} />
+      </div>
+    </div>
+  );
+}
+
 function SlideGlobe({ d }) {
   const mountRef = useRef(null);
 
@@ -2116,7 +2193,7 @@ export default function App() {
     showKPIs: true, showChart: true, showGauges: true,
     showTraders: true, showLinhas: true, showStatus: true,
     viewMode: "mes",
-    tvSlides: { 0: true, 1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true, 9: true, 10: true, 11: true, 12: true, 13: true },
+    tvSlides: { 0: true, 1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true, 9: true, 10: true, 11: true, 12: true, 13: true, 14: true },
   });
 
   const loadData = useCallback(async () => {
@@ -2195,7 +2272,7 @@ export default function App() {
 
   // ── TV MODE ──
   if (tvMode) {
-    const allSlides = [<SlideOverview d={d} />, <SlideTraders d={d} />, <SlideLinhas d={d} />, <SlideStatus d={d} />, <SlideGauges d={d} />, <SlideMargens d={d} />, <SlideProdutos d={d} />, <SlideGlobe d={d} />, <SlideOperacional d={d} />, <SlideFinancial1 d={d} />, <SlideFinancialMensal d={d} />, <SlideFinancial2 d={d} />, <SlideFluxoCaixa1 d={d} />, <SlideFluxoCaixa2 d={d} />];
+    const allSlides = [<SlideOverview d={d} />, <SlideTraders d={d} />, <SlideLinhas d={d} />, <SlideStatus d={d} />, <SlideGauges d={d} />, <SlideMargens d={d} />, <SlideProdutos d={d} />, <SlideGlobe d={d} />, <SlideOperacional d={d} />, <SlideRespStatus d={d} />, <SlideFinancial1 d={d} />, <SlideFinancialMensal d={d} />, <SlideFinancial2 d={d} />, <SlideFluxoCaixa1 d={d} />, <SlideFluxoCaixa2 d={d} />];
     const enabledIndices = SLIDE_NAMES.map((_, i) => i).filter(i => config.tvSlides[i]);
     const slides = enabledIndices.map(i => allSlides[i]);
     const slideNames = enabledIndices.map(i => SLIDE_NAMES[i]);
