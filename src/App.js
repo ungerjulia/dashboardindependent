@@ -665,7 +665,7 @@ function processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financia
     operationalData,
 
     // Responsavel x Status analysis (current month from LOB)
-    respStatusData: (() => {
+    respStatusData: (() => { try {
       const statusGroups = { "Sem Booking": [], "Com Booking": [], "Embarcado": [] };
       currentMonthRows.forEach(r => {
         const st = r.status.toLowerCase();
@@ -691,7 +691,7 @@ function processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financia
     })(),
 
     // ── Financial Analysis ──
-    financialData: (() => {
+    financialData: (() => { try {
       const finRows = (financial || []).map(r => {
         const keys = Object.keys(r);
         const findK = (s) => keys.find(k => k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[_\s]/g, "").includes(s)) || "";
@@ -784,7 +784,7 @@ function processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financia
     })(),
 
     // ── Cash Flow Projection (next 30 days) ──
-    cashFlowData: (() => {
+    cashFlowData: (() => { try {
       // Parse base termos de pgto
       const parseTermosBase = (raw) => {
         const map = {};
@@ -1551,7 +1551,7 @@ function CicloBar({ name, media, maxAbs }) {
 }
 
 function SlideFinancial1({ d }) {
-  const fin = d.financialData;
+  const fin = d.financialData || { cicloMedio: 0, total: 0, byTrader: [], topClientes: [], worstClientes: [], topFornecedores: [], worstFornecedores: [], monthlyCiclo: [] };
   const cicloColor = fin.cicloMedio <= -10 ? C.green : fin.cicloMedio <= 0 ? C.cyan : fin.cicloMedio <= 20 ? C.amber : C.red;
   const maxTrader = fin.byTrader.length > 0 ? Math.max(...fin.byTrader.map(t => Math.abs(t.media))) : 1;
 
@@ -1604,7 +1604,7 @@ function SlideFinancial1({ d }) {
 }
 
 function SlideFinancialMensal({ d }) {
-  const fin = d.financialData;
+  const fin = d.financialData || { cicloMedio: 0, total: 0, byTrader: [], topClientes: [], worstClientes: [], topFornecedores: [], worstFornecedores: [], monthlyCiclo: [] };
   const data = fin.monthlyCiclo;
   const maxAbs = data.length > 0 ? Math.max(...data.map(m => Math.abs(m.media))) : 1;
 
@@ -1649,7 +1649,7 @@ function SlideFinancialMensal({ d }) {
 }
 
 function SlideFinancial2({ d }) {
-  const fin = d.financialData;
+  const fin = d.financialData || { cicloMedio: 0, total: 0, byTrader: [], topClientes: [], worstClientes: [], topFornecedores: [], worstFornecedores: [], monthlyCiclo: [] };
   const RankCard = ({ items, title, type, unit }) => {
     const isTop = type === "top";
     return (
@@ -1705,7 +1705,7 @@ function SlideFinancial2({ d }) {
 }
 
 function SlideFluxoCaixa1({ d }) {
-  const cf = d.cashFlowData;
+  const cf = d.cashFlowData || { events: [], totalEntradas: 0, totalSaidas: 0, saldo: 0, weeks: [], totalProcessos: 0 };
   const saldoColor = cf.saldo >= 0 ? C.green : C.red;
 
   return (
@@ -1765,7 +1765,7 @@ function SlideFluxoCaixa1({ d }) {
 }
 
 function SlideFluxoCaixa2({ d }) {
-  const cf = d.cashFlowData;
+  const cf = d.cashFlowData || { events: [], totalEntradas: 0, totalSaidas: 0, saldo: 0, weeks: [], totalProcessos: 0 };
   const entradas = cf.events.filter(e => e.tipo === "entrada").slice(0, 12);
   const saidas = cf.events.filter(e => e.tipo === "saida").slice(0, 12);
 
@@ -1802,7 +1802,7 @@ function SlideFluxoCaixa2({ d }) {
 }
 
 function SlideOperacional({ d }) {
-  const op = d.operationalData;
+  const op = d.operationalData || { etdPeriod: "", docPeriod: "", etdAnalysis: { noPrazo: 0, antecipado: 0, atrasado: 0, semDados: 0 }, docAnalysis: { noPrazo: 0, antecipado: 0, atrasado: 0, semDados: 0 }, etdByResponsavel: [], totalEtd: 0, totalDoc: 0 };
   const etd = op.etdAnalysis;
   const doc = op.docAnalysis;
 
@@ -1903,7 +1903,7 @@ function SlideOperacional({ d }) {
 }
 
 function SlideRespStatus({ d }) {
-  const rs = d.respStatusData;
+  const rs = d.respStatusData || { semBooking: { total: 0, byResp: [] }, comBooking: { total: 0, byResp: [] }, embarcado: { total: 0, byResp: [] } };
 
   const StatusBlock = ({ title, icon, color, data, showContrato }) => (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
@@ -2228,16 +2228,28 @@ export default function App() {
         fetchSheet("Base termos de pgto").catch(() => []),
         fetchSheet("Base termos de pgto").catch(() => []),
       ]);
-      const processed = processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financial, termosCliente, termosFornecedor);
-      setData(processed);
-      setLastUpdate(new Date());
-      setError(null);
+      try {
+        const processed = processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financial, termosCliente, termosFornecedor);
+        setData(processed);
+        setLastUpdate(new Date());
+        setError(null);
+      } catch(pe) {
+        console.error("processData error:", pe);
+        // Try basic processData without new features
+        try {
+          const basic = processData(lob, metasTrader, metaLinha, metaGlobal, [], [], [], []);
+          setData(basic);
+          setLastUpdate(new Date());
+          setError(null);
+        } catch(e2) { setError("Erro ao processar: " + pe.message); }
+      }
       setLoading(false);
     } catch (e) {
       if (e.message === "TOKEN_EXPIRED") {
         setLoggedIn(false);
         setAccessToken(null);
       } else {
+        console.error("loadData error:", e);
         setError("Erro ao carregar dados: " + e.message);
       }
       setLoading(false);
