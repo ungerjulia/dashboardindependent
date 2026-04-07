@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import * as recharts from "recharts";
 import { jsPDF } from "jspdf";
 import "jspdf-autotable";
@@ -935,6 +935,28 @@ function processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financia
 // ══════════════════════════════════════════════════════════════
 //  UI COMPONENTS
 // ══════════════════════════════════════════════════════════════
+
+class SlideErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { hasError: false, error: null }; }
+  static getDerivedStateFromError(error) { return { hasError: true, error }; }
+  componentDidCatch(error, info) { console.error("Slide error:", error, info); }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontSize: 40 }}>⚠️</div>
+          <div style={{ fontSize: 16, color: "#fff", fontFamily: FONT }}>Erro ao renderizar este slide</div>
+          <div style={{ fontSize: 12, color: C.muted, fontFamily: FONT }}>{this.state.error?.message || "Erro desconhecido"}</div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function SafeSlide({ children }) {
+  return <SlideErrorBoundary>{children}</SlideErrorBoundary>;
+}
 
 function Panel({ title, children, style, icon }) {
   return (
@@ -2233,7 +2255,23 @@ export default function App() {
 
   // ── TV MODE ──
   if (tvMode) {
-    const allSlides = [<SlideOverview d={d} />, <SlideTraders d={d} />, <SlideLinhas d={d} />, <SlideStatus d={d} />, <SlideGauges d={d} />, <SlideMargens d={d} />, <SlideProdutos d={d} />, <SlideGlobe d={d} />, <SlideOperacional d={d} />, <SlideRespStatus d={d} />, <SlideFinancial1 d={d} />, <SlideFinancialMensal d={d} />, <SlideFinancial2 d={d} />, <SlideFluxoCaixa1 d={d} />, <SlideFluxoCaixa2 d={d} />];
+    const allSlides = [
+      <SafeSlide><SlideOverview d={d} /></SafeSlide>,
+      <SafeSlide><SlideTraders d={d} /></SafeSlide>,
+      <SafeSlide><SlideLinhas d={d} /></SafeSlide>,
+      <SafeSlide><SlideStatus d={d} /></SafeSlide>,
+      <SafeSlide><SlideGauges d={d} /></SafeSlide>,
+      <SafeSlide><SlideMargens d={d} /></SafeSlide>,
+      <SafeSlide><SlideProdutos d={d} /></SafeSlide>,
+      <SafeSlide><SlideGlobe d={d} /></SafeSlide>,
+      <SafeSlide><SlideOperacional d={d} /></SafeSlide>,
+      <SafeSlide><SlideRespStatus d={d} /></SafeSlide>,
+      <SafeSlide><SlideFinancial1 d={d} /></SafeSlide>,
+      <SafeSlide><SlideFinancialMensal d={d} /></SafeSlide>,
+      <SafeSlide><SlideFinancial2 d={d} /></SafeSlide>,
+      <SafeSlide><SlideFluxoCaixa1 d={d} /></SafeSlide>,
+      <SafeSlide><SlideFluxoCaixa2 d={d} /></SafeSlide>,
+    ];
     const enabledIndices = SLIDE_NAMES.map((_, i) => i).filter(i => config.tvSlides[i]);
     const slides = enabledIndices.map(i => allSlides[i]);
     const slideNames = enabledIndices.map(i => SLIDE_NAMES[i]);
