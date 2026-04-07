@@ -1912,22 +1912,37 @@ function SlideRespStatus({ d }) {
         <div style={{ fontSize: 36, fontWeight: 900, color: "#fff", fontFamily: FONT }}>{data.total}</div>
         <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT }}>processos</div>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4, overflow: "auto", flex: 1 }}>
         {data.byResp.map(r => {
           const comContrato = showContrato && r.processos ? r.processos.filter(p => p.dataContrato).length : 0;
           const semContrato = showContrato ? r.count - comContrato : 0;
           return (
-            <div key={r.name} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: `${color}08`, borderLeft: `3px solid ${color}`, borderRadius: 6 }}>
-              <span style={{ fontSize: 24, fontWeight: 900, color, fontFamily: FONT, width: 32, textAlign: "center" }}>{r.count}</span>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "#fff", fontFamily: FONT }}>{r.name}</div>
-                {showContrato && (
-                  <div style={{ fontSize: 10, color: C.muted, fontFamily: FONT }}>
-                    {comContrato > 0 && <span style={{ color: C.green }}>✓ {comContrato} c/ contrato </span>}
-                    {semContrato > 0 && <span style={{ color: C.amber }}>⚠ {semContrato} s/ contrato</span>}
-                  </div>
-                )}
+            <div key={r.name} style={{ padding: "8px 12px", background: `${color}08`, borderLeft: `3px solid ${color}`, borderRadius: 6 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 24, fontWeight: 900, color, fontFamily: FONT, width: 32, textAlign: "center" }}>{r.count}</span>
+                <span style={{ fontSize: 14, fontWeight: 700, color: "#fff", fontFamily: FONT }}>{r.name}</span>
               </div>
+              {showContrato && (
+                <div style={{ marginTop: 6, marginLeft: 42, display: "flex", flexDirection: "column", gap: 3 }}>
+                  {comContrato > 0 && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: 13, fontWeight: 800, color: C.green, fontFamily: FONT }}>✓ {comContrato} c/ contrato</span>
+                    </div>
+                  )}
+                  {semContrato > 0 && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, background: `${C.red}15`, borderRadius: 4, padding: "3px 8px" }}>
+                      <span style={{ fontSize: 14, fontWeight: 900, color: C.red, fontFamily: FONT }}>⚠ {semContrato} SEM CONTRATO</span>
+                    </div>
+                  )}
+                  {showContrato && r.processos && r.processos.filter(p => p.dataContrato).length > 0 && (
+                    <div style={{ fontSize: 10, color: C.muted, fontFamily: FONT, marginTop: 2 }}>
+                      {r.processos.filter(p => p.dataContrato).map(p => (
+                        <span key={p.processo} style={{ marginRight: 8 }}>{p.processo}: {p.dataContrato.toLocaleDateString("pt-BR")}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
