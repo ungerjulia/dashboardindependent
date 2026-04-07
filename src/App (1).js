@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import * as recharts from "recharts";
 import { jsPDF } from "jspdf";
 import "jspdf-autotable";
 
-const { AreaChart, Area, BarChart, Bar, ComposedChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } = recharts;
+const { ComposedChart, Bar, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } = recharts;
 
 // ══════════════════════════════════════════════════════════════
 //  PDF REPORT GENERATION
@@ -239,37 +239,6 @@ async function fetchSheet(sheetName) {
   });
 }
 
-function parseCSV(text) {
-  const lines = text.split("\n").filter(l => l.trim());
-  if (lines.length < 2) return [];
-  const headers = parseLine(lines[0]);
-  return lines.slice(1).map(line => {
-    const vals = parseLine(line);
-    const obj = {};
-    headers.forEach((h, i) => { obj[h] = vals[i] || ""; });
-    return obj;
-  });
-}
-
-function parseLine(line) {
-  const result = [];
-  let current = "";
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (ch === '"') {
-      if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
-      else inQuotes = !inQuotes;
-    } else if (ch === "," && !inQuotes) {
-      result.push(current.trim());
-      current = "";
-    } else {
-      current += ch;
-    }
-  }
-  result.push(current.trim());
-  return result;
-}
 
 function parseMoney(val) {
   if (!val) return 0;
@@ -688,7 +657,7 @@ function processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financia
         comBooking: { total: statusGroups["Com Booking"].length, byResp: byResp(statusGroups["Com Booking"]) },
         embarcado: { total: statusGroups["Embarcado"].length, byResp: byResp(statusGroups["Embarcado"]) },
       };
-    })(),
+    } catch(e) { console.error("respStatus error", e); return { semBooking: { total: 0, byResp: [] }, comBooking: { total: 0, byResp: [] }, embarcado: { total: 0, byResp: [] } }; } })(),
 
     // ── Financial Analysis ──
     financialData: (() => { try {
@@ -781,7 +750,7 @@ function processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financia
       }
 
       return { cicloMedio, total: valid.length, byTrader, topClientes, worstClientes, topFornecedores, worstFornecedores, monthlyCiclo };
-    })(),
+    } catch(e) { console.error("financial error", e); return { cicloMedio: 0, total: 0, byTrader: [], topClientes: [], worstClientes: [], topFornecedores: [], worstFornecedores: [], monthlyCiclo: [] }; } })(),
 
     // ── Cash Flow Projection (next 30 days) ──
     cashFlowData: (() => { try {
@@ -925,7 +894,7 @@ function processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financia
       }
 
       return { events, totalEntradas, totalSaidas, saldo: totalEntradas - totalSaidas, weeks, totalProcessos: allFinRows.filter(r => r.etd).length };
-    })(),
+    } catch(e) { console.error("cashflow error", e); return { events: [], totalEntradas: 0, totalSaidas: 0, saldo: 0, weeks: [], totalProcessos: 0 }; } })(),
 
     currentMonthName: MONTH_NAMES[currentMonth],
     _rawCurrentMonth: currentMonthRows,
@@ -964,32 +933,6 @@ function Panel({ title, children, style, icon }) {
   );
 }
 
-function GaugeChart({ value, max, period, color }) {
-  const pct = max > 0 ? Math.min((value / max) * 100, 150) : 0;
-  const displayPct = max > 0 ? (value / max) * 100 : 0;
-  const remaining = max - value;
-  const arcPct = Math.min(pct, 100);
-  return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, flex: 1, minWidth: 120 }}>
-      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.2, color: "#fff", textTransform: "uppercase", fontFamily: FONT }}>{period}</span>
-      <div style={{ position: "relative", width: 120, height: 75 }}>
-        <svg viewBox="0 0 120 75" style={{ width: "100%", height: "100%" }}>
-          <path d="M 10 65 A 50 50 0 0 1 110 65" fill="none" stroke={C.panelBorder} strokeWidth="8" strokeLinecap="round" />
-          <path d="M 10 65 A 50 50 0 0 1 110 65" fill="none" stroke={displayPct >= 100 ? C.green : color} strokeWidth="8" strokeLinecap="round" strokeDasharray={`${(arcPct / 100) * 157} 157`} style={{ filter: `drop-shadow(0 0 6px ${color}60)`, transition: "stroke-dasharray 1s ease" }} />
-        </svg>
-        <div style={{ position: "absolute", top: "45%", left: "50%", transform: "translate(-50%, -10%)", textAlign: "center" }}>
-          <div style={{ fontSize: 20, fontWeight: 800, color: displayPct >= 100 ? C.green : "#fff", fontFamily: FONT, lineHeight: 1 }}>{displayPct.toFixed(1)}%</div>
-        </div>
-      </div>
-      <div style={{ textAlign: "center" }}>
-        <div style={{ fontSize: 12, color: "#fff", fontWeight: 700, fontFamily: FONT }}>{fmtUSD(value)}</div>
-        <div style={{ fontSize: 10, color: "#fff", fontFamily: FONT, opacity: 0.7 }}>
-          {remaining > 0 ? <>Faltam <span style={{ color: C.amber, fontWeight: 700, opacity: 1 }}>{fmtUSD(remaining)}</span></> : <span style={{ color: C.green, fontWeight: 700, opacity: 1 }}>Meta batida! +{fmtUSD(Math.abs(remaining))}</span>}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function KPICard({ label, value, meta, icon, color }) {
   return (
@@ -1491,63 +1434,6 @@ const PIE_COLORS = ["#00e5ff", "#2979ff", "#ffab00", "#00e676", "#ff6b6b", "#ab4
 // ══════════════════════════════════════════════════════════════
 //  GLOBE — Country coordinates (lat, lng)
 // ══════════════════════════════════════════════════════════════
-const COUNTRY_COORDS = {
-  "brasil": [-14.24, -51.93], "brazil": [-14.24, -51.93],
-  "chile": [-35.68, -71.54], "argentina": [-38.42, -63.62],
-  "uruguai": [-32.52, -55.77], "uruguay": [-32.52, -55.77],
-  "paraguai": [-23.44, -58.44], "paraguay": [-23.44, -58.44],
-  "peru": [-9.19, -75.02], "colombia": [4.57, -74.30],
-  "equador": [-1.83, -78.18], "ecuador": [-1.83, -78.18],
-  "venezuela": [6.42, -66.59], "bolivia": [-16.29, -63.59],
-  "estados unidos": [37.09, -95.71], "eua": [37.09, -95.71], "usa": [37.09, -95.71], "united states": [37.09, -95.71],
-  "canada": [56.13, -106.35], "canadá": [56.13, -106.35],
-  "mexico": [23.63, -102.55], "méxico": [23.63, -102.55],
-  "china": [35.86, 104.20], "japao": [36.20, 138.25], "japão": [36.20, 138.25], "japan": [36.20, 138.25],
-  "coreia do sul": [35.91, 127.77], "south korea": [35.91, 127.77],
-  "india": [20.59, 78.96], "índia": [20.59, 78.96],
-  "tailandia": [15.87, 100.99], "tailândia": [15.87, 100.99], "thailand": [15.87, 100.99],
-  "vietna": [14.06, 108.28], "vietnã": [14.06, 108.28], "vietnam": [14.06, 108.28],
-  "indonesia": [-0.79, 113.92], "indonésia": [-0.79, 113.92],
-  "malasia": [4.21, 101.98], "malásia": [4.21, 101.98], "malaysia": [4.21, 101.98],
-  "filipinas": [12.88, 121.77], "philippines": [12.88, 121.77],
-  "paquistao": [30.38, 69.35], "paquistão": [30.38, 69.35], "pakistan": [30.38, 69.35],
-  "bangladesh": [23.68, 90.36],
-  "alemanha": [51.17, 10.45], "germany": [51.17, 10.45],
-  "franca": [46.23, 2.21], "frança": [46.23, 2.21], "france": [46.23, 2.21],
-  "italia": [41.87, 12.57], "itália": [41.87, 12.57], "italy": [41.87, 12.57],
-  "espanha": [40.46, -3.75], "spain": [40.46, -3.75],
-  "portugal": [39.40, -8.22], "reino unido": [55.38, -3.44], "uk": [55.38, -3.44],
-  "holanda": [52.13, 5.29], "netherlands": [52.13, 5.29], "paises baixos": [52.13, 5.29],
-  "belgica": [50.50, 4.47], "bélgica": [50.50, 4.47],
-  "suica": [46.82, 8.23], "suíça": [46.82, 8.23],
-  "russia": [61.52, 105.32], "rússia": [61.52, 105.32],
-  "turquia": [38.96, 35.24], "turkey": [38.96, 35.24],
-  "emirados arabes": [23.42, 53.85], "uae": [23.42, 53.85], "dubai": [25.20, 55.27],
-  "arabia saudita": [23.89, 45.08], "arábia saudita": [23.89, 45.08], "saudi arabia": [23.89, 45.08],
-  "africa do sul": [-30.56, 22.94], "south africa": [-30.56, 22.94],
-  "egito": [26.82, 30.80], "egypt": [26.82, 30.80],
-  "nigeria": [9.08, 8.68], "marrocos": [31.79, -7.09], "morocco": [31.79, -7.09],
-  "australia": [-25.27, 133.78], "nova zelandia": [-40.90, 174.89], "new zealand": [-40.90, 174.89],
-  "taiwan": [23.70, 120.96], "hong kong": [22.40, 114.11], "singapura": [1.35, 103.82], "singapore": [1.35, 103.82],
-  "noruega": [60.47, 8.47], "norway": [60.47, 8.47], "suecia": [60.13, 18.64], "sweden": [60.13, 18.64],
-  "dinamarca": [56.26, 9.50], "denmark": [56.26, 9.50], "finlandia": [61.92, 25.75], "finland": [61.92, 25.75],
-  "panama": [8.54, -80.78], "panamá": [8.54, -80.78], "costa rica": [9.75, -83.75],
-  "republica dominicana": [18.74, -70.16], "cuba": [21.52, -77.78], "jamaica": [18.11, -77.30],
-  "guatemala": [15.78, -90.23], "honduras": [15.20, -86.24], "el salvador": [13.79, -88.90],
-  "nicaragua": [12.87, -85.21], "porto rico": [18.22, -66.59], "puerto rico": [18.22, -66.59],
-  "trinidad": [10.69, -61.22], "trinidad e tobago": [10.69, -61.22],
-  "gana": [7.95, -1.02], "ghana": [7.95, -1.02], "quenia": [-0.02, 37.91], "kenya": [-0.02, 37.91],
-  "angola": [-11.20, 17.87], "mocambique": [-18.67, 35.53], "moçambique": [-18.67, 35.53],
-};
-
-function getCountryCoords(pais) {
-  const normalized = pais.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
-  if (COUNTRY_COORDS[normalized]) return COUNTRY_COORDS[normalized];
-  for (const [k, v] of Object.entries(COUNTRY_COORDS)) {
-    if (normalized.includes(k) || k.includes(normalized)) return v;
-  }
-  return null;
-}
 function CicloBar({ name, media, maxAbs }) {
   const pct = maxAbs > 0 ? (Math.abs(media) / maxAbs) * 100 : 0;
   const isGood = media <= 0;
