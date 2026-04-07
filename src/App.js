@@ -1817,28 +1817,27 @@ function SlideOperacional({ d }) {
           <div style={{ fontSize: 18, fontWeight: 800, color: "#fff", fontFamily: FONT, textAlign: "center" }}>📦 Pontualidade de Embarque</div>
           <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT, textAlign: "center" }}>ETD inicial vs ETD real (mesmo mês = no prazo)</div>
 
-          {/* Donut */}
-          <ResponsiveContainer width="100%" height={180}>
+          {/* Donut with proper labels */}
+          <ResponsiveContainer width="100%" height={170}>
             <PieChart>
               <Pie data={[
                 etd.noPrazo > 0 && { name: "No prazo", value: etd.noPrazo },
                 etd.antecipado > 0 && { name: "Antecipado", value: etd.antecipado },
                 etd.atrasado > 0 && { name: "Atrasado", value: etd.atrasado },
-                etd.semDados > 0 && { name: "Sem dados", value: etd.semDados },
-              ].filter(Boolean)} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={75} innerRadius={38} paddingAngle={3}
-                label={({ pct, cx: pcx, cy: pcy, midAngle, outerRadius: or }) => { const rad = -midAngle * Math.PI / 180; return <text x={pcx + (or + 20) * Math.cos(rad)} y={pcy + (or + 20) * Math.sin(rad)} textAnchor="middle" fill="#fff" fontSize={11} fontWeight={700} fontFamily={FONT}>{((pct || 0)).toFixed ? pct : ""}%</text>; }}
+              ].filter(Boolean)} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} innerRadius={35} paddingAngle={3}
+                label={({ cx: pcx, cy: pcy, midAngle, outerRadius: or, value, name }) => { const pct = ((value / etdTotal) * 100).toFixed(1); const rad = -midAngle * Math.PI / 180; return <text x={pcx + (or + 22) * Math.cos(rad)} y={pcy + (or + 22) * Math.sin(rad)} textAnchor="middle" fill="#fff" fontSize={10} fontWeight={700} fontFamily={FONT}>{pct}%</text>; }}
                 labelLine={{ stroke: C.muted, strokeWidth: 1 }}>
-                {[C.green, C.cyan, C.red, C.muted].slice(0, [etd.noPrazo, etd.antecipado, etd.atrasado, etd.semDados].filter(v => v > 0).length).map((c, i) => <Cell key={i} fill={c} />)}
+                {[etd.noPrazo > 0 && C.green, etd.antecipado > 0 && C.cyan, etd.atrasado > 0 && C.red].filter(Boolean).map((c, i) => <Cell key={i} fill={c} />)}
               </Pie>
             </PieChart>
           </ResponsiveContainer>
 
-          {/* Summary */}
-          <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-            {[{ label: "No prazo", val: etd.noPrazo, color: C.green }, { label: "Antecipado", val: etd.antecipado, color: C.cyan }, { label: "Atrasado", val: etd.atrasado, color: C.red }].filter(x => x.val > 0).map(x => (
-              <div key={x.label} style={{ background: `${x.color}12`, borderLeft: `3px solid ${x.color}`, borderRadius: 6, padding: "6px 12px", textAlign: "center" }}>
-                <div style={{ fontSize: 20, fontWeight: 900, color: x.color, fontFamily: FONT }}>{x.val}</div>
-                <div style={{ fontSize: 10, color: "#fff", fontFamily: FONT }}>{x.label}</div>
+          {/* Always show all 3 legend items */}
+          <div style={{ display: "flex", gap: 6, justifyContent: "center", flexWrap: "wrap" }}>
+            {[{ label: "No prazo", val: etd.noPrazo, color: C.green }, { label: "Antecipado", val: etd.antecipado, color: C.cyan }, { label: "Atrasado", val: etd.atrasado, color: C.red }].map(x => (
+              <div key={x.label} style={{ display: "flex", alignItems: "center", gap: 6, background: `${x.color}15`, borderLeft: `4px solid ${x.color}`, borderRadius: 6, padding: "6px 12px" }}>
+                <span style={{ fontSize: 22, fontWeight: 900, color: x.color, fontFamily: FONT }}>{x.val}</span>
+                <span style={{ fontSize: 12, color: "#fff", fontWeight: 600, fontFamily: FONT }}>{x.label}</span>
               </div>
             ))}
           </div>
@@ -1846,20 +1845,20 @@ function SlideOperacional({ d }) {
           {/* Per Responsavel */}
           {op.etdByResponsavel && op.etdByResponsavel.length > 0 && (
             <div style={{ marginTop: 4 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: C.muted, fontFamily: FONT, textAlign: "center", marginBottom: 6 }}>Por Responsável Operacional</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, fontFamily: FONT, textAlign: "center", marginBottom: 4 }}>Por Responsável</div>
               {op.etdByResponsavel.map(r => {
                 const total = r.noPrazo + r.antecipado + r.atrasado;
                 return (
-                  <div key={r.name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 10px", marginBottom: 3, borderRadius: 6, background: `${C.panelBorder}40` }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: "#fff", fontFamily: FONT, width: 70 }}>{r.name}</span>
-                    <div style={{ flex: 1, height: 10, borderRadius: 5, overflow: "hidden", display: "flex" }}>
+                  <div key={r.name} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px", marginBottom: 2, borderRadius: 4, background: `${C.panelBorder}40` }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", fontFamily: FONT, width: 60 }}>{r.name}</span>
+                    <div style={{ flex: 1, height: 8, borderRadius: 4, overflow: "hidden", display: "flex" }}>
                       {r.noPrazo > 0 && <div style={{ width: `${(r.noPrazo / total) * 100}%`, height: "100%", background: C.green }} />}
                       {r.antecipado > 0 && <div style={{ width: `${(r.antecipado / total) * 100}%`, height: "100%", background: C.cyan }} />}
                       {r.atrasado > 0 && <div style={{ width: `${(r.atrasado / total) * 100}%`, height: "100%", background: C.red }} />}
                     </div>
-                    <span style={{ fontSize: 10, color: C.green, fontFamily: FONT, width: 20, textAlign: "center" }}>{r.noPrazo}</span>
-                    <span style={{ fontSize: 10, color: C.cyan, fontFamily: FONT, width: 20, textAlign: "center" }}>{r.antecipado}</span>
-                    <span style={{ fontSize: 10, color: C.red, fontFamily: FONT, width: 20, textAlign: "center" }}>{r.atrasado}</span>
+                    <span style={{ fontSize: 10, color: C.green, fontWeight: 700, fontFamily: FONT, width: 18, textAlign: "center" }}>{r.noPrazo}</span>
+                    <span style={{ fontSize: 10, color: C.cyan, fontWeight: 700, fontFamily: FONT, width: 18, textAlign: "center" }}>{r.antecipado}</span>
+                    <span style={{ fontSize: 10, color: C.red, fontWeight: 700, fontFamily: FONT, width: 18, textAlign: "center" }}>{r.atrasado}</span>
                   </div>
                 );
               })}
