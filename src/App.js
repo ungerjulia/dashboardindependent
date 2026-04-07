@@ -1172,7 +1172,7 @@ function SettingsPanel({ config, setConfig, onClose }) {
     { key: "viewMode", value: "mes", label: "Visão Mensal" },
     { key: "viewMode", value: "ano", label: "Visão Anual" },
   ];
-  const slideIcons = ["📊", "🏆", "🏷️", "📦", "🎯", "📈", "🥧", "🌍", "⚙️", "👥", "💰", "📅", "🏢", "💸", "📋"];
+  const slideIcons = ["📊", "🏆", "🏷️", "📦", "🎯", "📈", "🥧", "⚙️", "👥", "💰", "📅", "🏢", "💸", "📋"];
 
   return (
     <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: 340, background: C.panel, borderLeft: `1px solid ${C.panelBorder}`, zIndex: 1000, padding: "20px", display: "flex", flexDirection: "column", gap: 14, overflowY: "auto", boxShadow: "-4px 0 20px rgba(0,0,0,0.5)" }}>
@@ -1223,9 +1223,9 @@ function SettingsPanel({ config, setConfig, onClose }) {
 // ══════════════════════════════════════════════════════════════
 //  CAROUSEL SLIDES
 // ══════════════════════════════════════════════════════════════
-const SLIDE_NAMES = ["Visão Geral", "Ranking de Traders", "Linhas de Negócio", "Status dos Processos", "Metas Globais", "Margens de Venda", "Produtos por Linha", "Operações Globais", "Análise Operacional", "Processos por Responsável", "Ciclo Financeiro", "Ciclo Mensal", "Prazos Clientes & Fornecedores", "Fluxo de Caixa", "Fluxo Detalhado"];
+const SLIDE_NAMES = ["Visão Geral", "Ranking de Traders", "Linhas de Negócio", "Status dos Processos", "Metas Globais", "Margens de Venda", "Produtos por Linha", "Análise Operacional", "Processos por Responsável", "Ciclo Financeiro", "Ciclo Mensal", "Prazos Clientes & Fornecedores", "Fluxo de Caixa", "Fluxo Detalhado"];
 const SLIDE_INTERVAL = 20000;
-const SLIDE_TIMES = { 7: 30000 }; // Slide 7 (Globe) = 30s, others = 20s
+const SLIDE_TIMES = {};
 
 function SlideOverview({ d }) {
   // Custom label for bars showing total and difference vs meta
@@ -1990,118 +1990,6 @@ function SlideRespStatus({ d }) {
   );
 }
 
-// Globe state stored globally to survive re-renders without creating new WebGL contexts
-
-function SlideGlobe({ d }) {
-  const impoData = d.globeData.filter(g => g.tipo === "IMPO");
-  const expoData = d.globeData.filter(g => g.tipo === "EXPO");
-  const totalImpo = impoData.reduce((s, g) => s + g.lob, 0);
-  const totalExpo = expoData.reduce((s, g) => s + g.lob, 0);
-
-  // Simple 2D map with markers (Mercator-style)
-  const mapW = 600, mapH = 340;
-  const brLat = -14.24, brLng = -51.93;
-
-  function latLngToXY(lat, lng) {
-    const x = ((lng + 180) / 360) * mapW;
-    const y = ((90 - lat) / 180) * mapH;
-    return { x, y };
-  }
-
-  const brXY = latLngToXY(brLat, brLng);
-
-  return (
-    <div style={{ flex: 1, padding: "0 20px", display: "flex", flexDirection: "column", gap: 4 }}>
-      <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>🌍 OPERAÇÕES GLOBAIS — {d.currentMonthName.toUpperCase()}</div>
-      <div style={{ display: "flex", flex: 1, gap: 8 }}>
-        {/* Left - IMPO */}
-        <div style={{ width: 220, display: "flex", flexDirection: "column", gap: 6, justifyContent: "center", padding: "0 8px" }}>
-          <div style={{ fontSize: 16, fontWeight: 800, color: "#fff", fontFamily: FONT, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ width: 12, height: 12, background: "#fff", borderRadius: "50%", display: "inline-block", boxShadow: "0 0 6px rgba(255,255,255,0.5)" }} /> IMPORTAÇÃO
-          </div>
-          {impoData.length > 0 ? impoData.map(g => (
-            <div key={g.pais} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#fff", fontFamily: FONT, padding: "4px 0", borderBottom: `1px solid ${C.panelBorder}` }}>
-              <span style={{ fontWeight: 600 }}>{g.pais}</span>
-              <span style={{ fontWeight: 800 }}>{fmtUSD(g.lob)} <span style={{ color: C.muted, fontWeight: 400 }}>({g.count})</span></span>
-            </div>
-          )) : <div style={{ fontSize: 12, color: C.muted }}>Sem dados no mês</div>}
-          {impoData.length > 0 && <div style={{ fontSize: 14, fontWeight: 800, color: "#fff", fontFamily: FONT, marginTop: 4, paddingTop: 6, borderTop: `2px solid ${C.panelBorder}` }}>Total: {fmtUSD(totalImpo)}</div>}
-        </div>
-
-        {/* Center - Map */}
-        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <svg viewBox={`0 0 ${mapW} ${mapH}`} style={{ width: "100%", maxWidth: mapW, maxHeight: mapH }}>
-            {/* Background */}
-            <rect x="0" y="0" width={mapW} height={mapH} rx="12" fill="#0a1220" stroke={C.panelBorder} strokeWidth="1" />
-
-            {/* Grid */}
-            {[-60, -30, 0, 30, 60].map(lat => { const y = ((90 - lat) / 180) * mapH; return <line key={`lat${lat}`} x1="0" y1={y} x2={mapW} y2={y} stroke={C.panelBorder} strokeWidth="0.5" strokeDasharray="4,4" />; })}
-            {[-120, -60, 0, 60, 120].map(lng => { const x = ((lng + 180) / 360) * mapW; return <line key={`lng${lng}`} x1={x} y1="0" x2={x} y2={mapH} stroke={C.panelBorder} strokeWidth="0.5" strokeDasharray="4,4" />; })}
-
-            {/* Simplified continent outlines */}
-            {/* South America */}
-            <path d="M165,165 L160,170 L155,180 L150,195 L148,210 L150,225 L155,235 L148,245 L142,255 L145,265 L150,268 L158,260 L162,250 L168,240 L170,225 L172,210 L175,195 L178,185 L175,175 L170,168 Z" fill="rgba(20,60,100,0.35)" stroke="rgba(0,229,255,0.3)" strokeWidth="0.8" />
-            {/* North America */}
-            <path d="M130,75 L125,85 L118,95 L108,105 L100,115 L98,125 L105,135 L115,140 L125,145 L135,150 L145,155 L155,158 L165,165 L175,160 L178,150 L170,135 L160,120 L155,110 L150,100 L145,90 L140,80 Z" fill="rgba(20,60,100,0.35)" stroke="rgba(0,229,255,0.3)" strokeWidth="0.8" />
-            {/* Africa */}
-            <path d="M310,145 L305,155 L298,165 L295,180 L298,200 L305,215 L310,230 L315,240 L322,245 L328,240 L332,225 L335,210 L340,195 L342,180 L340,165 L335,155 L328,148 L320,145 Z" fill="rgba(20,60,100,0.35)" stroke="rgba(0,229,255,0.3)" strokeWidth="0.8" />
-            {/* Europe */}
-            <path d="M300,85 L295,95 L292,105 L295,115 L300,125 L308,130 L315,135 L325,138 L332,130 L335,120 L330,110 L325,100 L318,92 L310,88 Z" fill="rgba(20,60,100,0.35)" stroke="rgba(0,229,255,0.3)" strokeWidth="0.8" />
-            {/* Asia */}
-            <path d="M340,75 L345,85 L355,95 L370,100 L385,105 L400,108 L420,110 L440,108 L460,105 L475,100 L485,110 L490,125 L485,140 L475,150 L460,155 L440,160 L420,158 L400,155 L385,150 L370,145 L358,138 L348,130 L340,120 L335,110 L335,95 Z" fill="rgba(20,60,100,0.35)" stroke="rgba(0,229,255,0.3)" strokeWidth="0.8" />
-            {/* Australia */}
-            <path d="M462,210 L455,220 L452,235 L458,248 L468,255 L480,252 L490,242 L492,228 L488,218 L478,212 L470,210 Z" fill="rgba(20,60,100,0.35)" stroke="rgba(0,229,255,0.3)" strokeWidth="0.8" />
-
-            {/* Arcs from Brazil to countries */}
-            {d.globeData.map(item => {
-              const coords = getCountryCoords(item.pais);
-              if (!coords) return null;
-              const p = latLngToXY(coords[0], coords[1]);
-              const color = item.tipo === "IMPO" ? "#ffffff" : C.blue;
-              const midY = Math.min(brXY.y, p.y) - 20 - Math.abs(brXY.x - p.x) * 0.08;
-              return <path key={`${item.pais}-${item.tipo}`} d={`M${brXY.x},${brXY.y} Q${(brXY.x + p.x) / 2},${midY} ${p.x},${p.y}`} fill="none" stroke={color} strokeWidth="1" strokeOpacity="0.3" />;
-            })}
-
-            {/* Brazil marker */}
-            <circle cx={brXY.x} cy={brXY.y} r="6" fill={C.green} opacity="0.3" />
-            <circle cx={brXY.x} cy={brXY.y} r="3.5" fill={C.green} />
-            <text x={brXY.x} y={brXY.y - 10} textAnchor="middle" fill={C.green} fontSize="8" fontWeight="800" fontFamily={FONT}>BRASIL</text>
-
-            {/* Country markers */}
-            {d.globeData.map(item => {
-              const coords = getCountryCoords(item.pais);
-              if (!coords) return null;
-              const p = latLngToXY(coords[0], coords[1]);
-              const color = item.tipo === "IMPO" ? "#ffffff" : C.blue;
-              const sz = 2.5 + Math.min(item.count * 1.2, 5);
-              return (
-                <g key={`m-${item.pais}-${item.tipo}`}>
-                  <circle cx={p.x} cy={p.y} r={sz} fill={color} opacity="0.2" />
-                  <circle cx={p.x} cy={p.y} r="2.5" fill={color} />
-                  <text x={p.x} y={p.y - sz - 2} textAnchor="middle" fill={color} fontSize="7" fontWeight="700" fontFamily={FONT}>{item.pais}</text>
-                </g>
-              );
-            })}
-          </svg>
-        </div>
-
-        {/* Right - EXPO */}
-        <div style={{ width: 220, display: "flex", flexDirection: "column", gap: 6, justifyContent: "center", padding: "0 8px" }}>
-          <div style={{ fontSize: 16, fontWeight: 800, color: C.blue, fontFamily: FONT, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ width: 12, height: 12, background: C.blue, borderRadius: "50%", display: "inline-block", boxShadow: `0 0 6px ${C.blue}80` }} /> EXPORTAÇÃO
-          </div>
-          {expoData.length > 0 ? expoData.map(g => (
-            <div key={g.pais} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.blue, fontFamily: FONT, padding: "4px 0", borderBottom: `1px solid ${C.panelBorder}` }}>
-              <span style={{ fontWeight: 600 }}>{g.pais}</span>
-              <span style={{ fontWeight: 800 }}>{fmtUSD(g.lob)} <span style={{ color: C.muted, fontWeight: 400 }}>({g.count})</span></span>
-            </div>
-          )) : <div style={{ fontSize: 12, color: C.muted }}>Sem dados no mês</div>}
-          {expoData.length > 0 && <div style={{ fontSize: 14, fontWeight: 800, color: C.blue, fontFamily: FONT, marginTop: 4, paddingTop: 6, borderTop: `2px solid ${C.panelBorder}` }}>Total: {fmtUSD(totalExpo)}</div>}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function SlideProdutos({ d }) {
   const linhas = Object.entries(d.produtosPorLinha);
@@ -2166,7 +2054,7 @@ export default function App() {
     showKPIs: true, showChart: true, showGauges: true,
     showTraders: true, showLinhas: true, showStatus: true,
     viewMode: "mes",
-    tvSlides: { 0: true, 1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true, 9: true, 10: true, 11: true, 12: true, 13: true, 14: true },
+    tvSlides: { 0: true, 1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true, 9: true, 10: true, 11: true, 12: true, 13: true },
   });
 
   const loadData = useCallback(async () => {
@@ -2265,7 +2153,6 @@ export default function App() {
       <SafeSlide><SlideGauges d={d} /></SafeSlide>,
       <SafeSlide><SlideMargens d={d} /></SafeSlide>,
       <SafeSlide><SlideProdutos d={d} /></SafeSlide>,
-      <SafeSlide><SlideGlobe d={d} /></SafeSlide>,
       <SafeSlide><SlideOperacional d={d} /></SafeSlide>,
       <SafeSlide><SlideRespStatus d={d} /></SafeSlide>,
       <SafeSlide><SlideFinancial1 d={d} /></SafeSlide>,
