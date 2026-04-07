@@ -2076,11 +2076,13 @@ function SlideGlobe({ d }) {
 
       // Animation loop
       function animate() {
-        if (destroyed) return;
-        globe.rotation.y += 0.0015;
-        group.rotation.y += 0.0015;
-        renderer.render(scene, camera);
-        animId = requestAnimationFrame(animate);
+        if (destroyed || !renderer) return;
+        try {
+          globe.rotation.y += 0.0015;
+          group.rotation.y += 0.0015;
+          renderer.render(scene, camera);
+          animId = requestAnimationFrame(animate);
+        } catch(e) { destroyed = true; }
       }
       animate();
     }
@@ -2098,10 +2100,15 @@ function SlideGlobe({ d }) {
     return function() {
       destroyed = true;
       if (animId) cancelAnimationFrame(animId);
-      if (renderer) {
-        renderer.dispose();
-        renderer.forceContextLoss();
-      }
+      try {
+        if (renderer && renderer.domElement) {
+          renderer.dispose();
+          if (mount && mount.contains(renderer.domElement)) {
+            mount.removeChild(renderer.domElement);
+          }
+        }
+      } catch(e) {}
+      renderer = null;
       if (mount) mount.innerHTML = "";
     };
   }, [d.globeData]);
