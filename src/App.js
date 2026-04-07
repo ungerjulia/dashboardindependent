@@ -1967,185 +1967,112 @@ function SlideRespStatus({ d }) {
 }
 
 // Globe state stored globally to survive re-renders without creating new WebGL contexts
-var _globeState = null;
 
 function SlideGlobe({ d }) {
-  const mountRef = useRef(null);
-  const frameRef = useRef(null);
+  const impoData = d.globeData.filter(g => g.tipo === "IMPO");
+  const expoData = d.globeData.filter(g => g.tipo === "EXPO");
+  const totalImpo = impoData.reduce((s, g) => s + g.lob, 0);
+  const totalExpo = expoData.reduce((s, g) => s + g.lob, 0);
 
-  useEffect(() => {
-    const mount = mountRef.current;
-    if (!mount) return;
-    let stopped = false;
+  // Simple 2D map with markers (Mercator-style)
+  const mapW = 600, mapH = 340;
+  const brLat = -14.24, brLng = -51.93;
 
-    function initOrReuse() {
-      if (stopped) return;
-      const THREE = window.THREE;
-      if (!THREE) return;
+  function latLngToXY(lat, lng) {
+    const x = ((lng + 180) / 360) * mapW;
+    const y = ((90 - lat) / 180) * mapH;
+    return { x, y };
+  }
 
-      // Reuse existing globe state if available
-      if (_globeState && _globeState.renderer) {
-        try {
-          // Re-attach existing canvas
-          mount.innerHTML = "";
-          mount.appendChild(_globeState.renderer.domElement);
-          // Update markers with new data
-          updateMarkers(_globeState, d.globeData, THREE);
-          // Restart animation
-          function animate() {
-            if (stopped) return;
-            _globeState.globe.rotation.y += 0.0015;
-            _globeState.group.rotation.y += 0.0015;
-            _globeState.renderer.render(_globeState.scene, _globeState.camera);
-            frameRef.current = requestAnimationFrame(animate);
-          }
-          animate();
-          return;
-        } catch(e) {
-          _globeState = null;
-        }
-      }
-
-      // Create new globe
-      const W = mount.clientWidth || 700;
-      const H = mount.clientHeight || 500;
-      const scene = new THREE.Scene();
-      const camera = new THREE.PerspectiveCamera(45, W / H, 0.1, 1000);
-      camera.position.z = 2.6;
-      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-      renderer.setSize(W, H);
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      renderer.setClearColor(0x000000, 0);
-      mount.innerHTML = "";
-      mount.appendChild(renderer.domElement);
-
-      const globe = new THREE.Mesh(
-        new THREE.SphereGeometry(1, 64, 64),
-        new THREE.MeshPhongMaterial({
-          map: new THREE.TextureLoader().load("https://unpkg.com/three-globe@2.31.1/example/img/earth-blue-marble.jpg"),
-          bumpScale: 0.02, specular: new THREE.Color(0x222222), shininess: 10,
-        })
-      );
-      scene.add(globe);
-      scene.add(new THREE.Mesh(
-        new THREE.SphereGeometry(1.03, 64, 64),
-        new THREE.MeshBasicMaterial({ color: 0x2979ff, transparent: true, opacity: 0.07, side: THREE.BackSide })
-      ));
-      scene.add(new THREE.AmbientLight(0x606060, 1.5));
-      const dLight = new THREE.DirectionalLight(0xffffff, 1);
-      dLight.position.set(5, 3, 5);
-      scene.add(dLight);
-
-      const group = new THREE.Group();
-      addMarkers(group, d.globeData, THREE);
-      scene.add(group);
-
-      globe.rotation.y = -1.5;
-      group.rotation.y = -1.5;
-
-      _globeState = { renderer, scene, camera, globe, group };
-
-      function animate() {
-        if (stopped) return;
-        globe.rotation.y += 0.0015;
-        group.rotation.y += 0.0015;
-        renderer.render(scene, camera);
-        frameRef.current = requestAnimationFrame(animate);
-      }
-      animate();
-    }
-
-    function ll2v(lat, lng, r) {
-      const THREE = window.THREE;
-      const phi = (90 - lat) * Math.PI / 180;
-      const theta = (lng + 180) * Math.PI / 180;
-      return new THREE.Vector3(-r * Math.sin(phi) * Math.cos(theta), r * Math.cos(phi), r * Math.sin(phi) * Math.sin(theta));
-    }
-
-    function addMarkers(group, globeData, THREE) {
-      // Brazil
-      const brPos = ll2v(-14.24, -51.93, 1.015);
-      const brM = new THREE.Mesh(new THREE.SphereGeometry(0.022, 16, 16), new THREE.MeshBasicMaterial({ color: 0x00e676 }));
-      brM.position.copy(brPos); group.add(brM);
-      const brG = new THREE.Mesh(new THREE.SphereGeometry(0.045, 16, 16), new THREE.MeshBasicMaterial({ color: 0x00e676, transparent: true, opacity: 0.25 }));
-      brG.position.copy(brPos); group.add(brG);
-
-      globeData.forEach(function(item) {
-        var coords = getCountryCoords(item.pais);
-        if (!coords) return;
-        var color = item.tipo === "IMPO" ? 0xffffff : 0x2979ff;
-        var pos = ll2v(coords[0], coords[1], 1.015);
-        var sz = 0.014 + Math.min(item.count * 0.004, 0.016);
-        var marker = new THREE.Mesh(new THREE.SphereGeometry(sz, 12, 12), new THREE.MeshBasicMaterial({ color: color }));
-        marker.position.copy(pos); group.add(marker);
-        var glow = new THREE.Mesh(new THREE.SphereGeometry(sz * 2.5, 12, 12), new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: 0.15 }));
-        glow.position.copy(pos); group.add(glow);
-        var mid = new THREE.Vector3().addVectors(brPos, pos).multiplyScalar(0.5);
-        var dist = brPos.distanceTo(pos);
-        mid.normalize().multiplyScalar(1 + dist * 0.35);
-        var curve = new THREE.QuadraticBezierCurve3(brPos, mid, pos);
-        group.add(new THREE.Line(
-          new THREE.BufferGeometry().setFromPoints(curve.getPoints(40)),
-          new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: 0.3 })
-        ));
-      });
-    }
-
-    function updateMarkers(state, globeData, THREE) {
-      // Clear old markers
-      while (state.group.children.length) state.group.remove(state.group.children[0]);
-      addMarkers(state.group, globeData, THREE);
-    }
-
-    if (window.THREE) {
-      initOrReuse();
-    } else {
-      var script = document.createElement("script");
-      script.src = "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js";
-      script.onload = initOrReuse;
-      document.head.appendChild(script);
-    }
-
-    return function() {
-      stopped = true;
-      if (frameRef.current) cancelAnimationFrame(frameRef.current);
-      // DON'T destroy the renderer - keep it for reuse
-    };
-  }, [d.globeData]);
-
-  var impoData = d.globeData.filter(function(g) { return g.tipo === "IMPO"; });
-  var expoData = d.globeData.filter(function(g) { return g.tipo === "EXPO"; });
-  var totalImpo = impoData.reduce(function(s, g) { return s + g.lob; }, 0);
-  var totalExpo = expoData.reduce(function(s, g) { return s + g.lob; }, 0);
+  const brXY = latLngToXY(brLat, brLng);
 
   return (
     <div style={{ flex: 1, padding: "0 20px", display: "flex", flexDirection: "column", gap: 4 }}>
       <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>🌍 OPERAÇÕES GLOBAIS — {d.currentMonthName.toUpperCase()}</div>
       <div style={{ display: "flex", flex: 1, gap: 8 }}>
+        {/* Left - IMPO */}
         <div style={{ width: 220, display: "flex", flexDirection: "column", gap: 6, justifyContent: "center", padding: "0 8px" }}>
           <div style={{ fontSize: 16, fontWeight: 800, color: "#fff", fontFamily: FONT, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ width: 12, height: 12, background: "#fff", borderRadius: "50%", display: "inline-block", boxShadow: "0 0 6px rgba(255,255,255,0.5)" }} /> IMPORTAÇÃO
           </div>
-          {impoData.length > 0 ? impoData.map(function(g) { return (
-            <div key={g.pais} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#fff", fontFamily: FONT, padding: "4px 0", borderBottom: "1px solid " + C.panelBorder }}>
+          {impoData.length > 0 ? impoData.map(g => (
+            <div key={g.pais} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#fff", fontFamily: FONT, padding: "4px 0", borderBottom: `1px solid ${C.panelBorder}` }}>
               <span style={{ fontWeight: 600 }}>{g.pais}</span>
               <span style={{ fontWeight: 800 }}>{fmtUSD(g.lob)} <span style={{ color: C.muted, fontWeight: 400 }}>({g.count})</span></span>
             </div>
-          ); }) : <div style={{ fontSize: 12, color: C.muted }}>Sem dados no mês</div>}
-          {impoData.length > 0 && <div style={{ fontSize: 14, fontWeight: 800, color: "#fff", fontFamily: FONT, marginTop: 4, paddingTop: 6, borderTop: "2px solid " + C.panelBorder }}>Total: {fmtUSD(totalImpo)}</div>}
+          )) : <div style={{ fontSize: 12, color: C.muted }}>Sem dados no mês</div>}
+          {impoData.length > 0 && <div style={{ fontSize: 14, fontWeight: 800, color: "#fff", fontFamily: FONT, marginTop: 4, paddingTop: 6, borderTop: `2px solid ${C.panelBorder}` }}>Total: {fmtUSD(totalImpo)}</div>}
         </div>
-        <div ref={mountRef} style={{ flex: 1, minHeight: 450 }} />
+
+        {/* Center - Map */}
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <svg viewBox={`0 0 ${mapW} ${mapH}`} style={{ width: "100%", maxWidth: mapW, maxHeight: mapH }}>
+            {/* Background */}
+            <rect x="0" y="0" width={mapW} height={mapH} rx="12" fill="#0a1220" stroke={C.panelBorder} strokeWidth="1" />
+
+            {/* Grid */}
+            {[-60, -30, 0, 30, 60].map(lat => { const y = ((90 - lat) / 180) * mapH; return <line key={`lat${lat}`} x1="0" y1={y} x2={mapW} y2={y} stroke={C.panelBorder} strokeWidth="0.5" strokeDasharray="4,4" />; })}
+            {[-120, -60, 0, 60, 120].map(lng => { const x = ((lng + 180) / 360) * mapW; return <line key={`lng${lng}`} x1={x} y1="0" x2={x} y2={mapH} stroke={C.panelBorder} strokeWidth="0.5" strokeDasharray="4,4" />; })}
+
+            {/* Simplified continent outlines */}
+            {/* South America */}
+            <path d="M165,165 L160,170 L155,180 L150,195 L148,210 L150,225 L155,235 L148,245 L142,255 L145,265 L150,268 L158,260 L162,250 L168,240 L170,225 L172,210 L175,195 L178,185 L175,175 L170,168 Z" fill="rgba(20,60,100,0.35)" stroke="rgba(0,229,255,0.3)" strokeWidth="0.8" />
+            {/* North America */}
+            <path d="M130,75 L125,85 L118,95 L108,105 L100,115 L98,125 L105,135 L115,140 L125,145 L135,150 L145,155 L155,158 L165,165 L175,160 L178,150 L170,135 L160,120 L155,110 L150,100 L145,90 L140,80 Z" fill="rgba(20,60,100,0.35)" stroke="rgba(0,229,255,0.3)" strokeWidth="0.8" />
+            {/* Africa */}
+            <path d="M310,145 L305,155 L298,165 L295,180 L298,200 L305,215 L310,230 L315,240 L322,245 L328,240 L332,225 L335,210 L340,195 L342,180 L340,165 L335,155 L328,148 L320,145 Z" fill="rgba(20,60,100,0.35)" stroke="rgba(0,229,255,0.3)" strokeWidth="0.8" />
+            {/* Europe */}
+            <path d="M300,85 L295,95 L292,105 L295,115 L300,125 L308,130 L315,135 L325,138 L332,130 L335,120 L330,110 L325,100 L318,92 L310,88 Z" fill="rgba(20,60,100,0.35)" stroke="rgba(0,229,255,0.3)" strokeWidth="0.8" />
+            {/* Asia */}
+            <path d="M340,75 L345,85 L355,95 L370,100 L385,105 L400,108 L420,110 L440,108 L460,105 L475,100 L485,110 L490,125 L485,140 L475,150 L460,155 L440,160 L420,158 L400,155 L385,150 L370,145 L358,138 L348,130 L340,120 L335,110 L335,95 Z" fill="rgba(20,60,100,0.35)" stroke="rgba(0,229,255,0.3)" strokeWidth="0.8" />
+            {/* Australia */}
+            <path d="M462,210 L455,220 L452,235 L458,248 L468,255 L480,252 L490,242 L492,228 L488,218 L478,212 L470,210 Z" fill="rgba(20,60,100,0.35)" stroke="rgba(0,229,255,0.3)" strokeWidth="0.8" />
+
+            {/* Arcs from Brazil to countries */}
+            {d.globeData.map(item => {
+              const coords = getCountryCoords(item.pais);
+              if (!coords) return null;
+              const p = latLngToXY(coords[0], coords[1]);
+              const color = item.tipo === "IMPO" ? "#ffffff" : C.blue;
+              const midY = Math.min(brXY.y, p.y) - 20 - Math.abs(brXY.x - p.x) * 0.08;
+              return <path key={`${item.pais}-${item.tipo}`} d={`M${brXY.x},${brXY.y} Q${(brXY.x + p.x) / 2},${midY} ${p.x},${p.y}`} fill="none" stroke={color} strokeWidth="1" strokeOpacity="0.3" />;
+            })}
+
+            {/* Brazil marker */}
+            <circle cx={brXY.x} cy={brXY.y} r="6" fill={C.green} opacity="0.3" />
+            <circle cx={brXY.x} cy={brXY.y} r="3.5" fill={C.green} />
+            <text x={brXY.x} y={brXY.y - 10} textAnchor="middle" fill={C.green} fontSize="8" fontWeight="800" fontFamily={FONT}>BRASIL</text>
+
+            {/* Country markers */}
+            {d.globeData.map(item => {
+              const coords = getCountryCoords(item.pais);
+              if (!coords) return null;
+              const p = latLngToXY(coords[0], coords[1]);
+              const color = item.tipo === "IMPO" ? "#ffffff" : C.blue;
+              const sz = 2.5 + Math.min(item.count * 1.2, 5);
+              return (
+                <g key={`m-${item.pais}-${item.tipo}`}>
+                  <circle cx={p.x} cy={p.y} r={sz} fill={color} opacity="0.2" />
+                  <circle cx={p.x} cy={p.y} r="2.5" fill={color} />
+                  <text x={p.x} y={p.y - sz - 2} textAnchor="middle" fill={color} fontSize="7" fontWeight="700" fontFamily={FONT}>{item.pais}</text>
+                </g>
+              );
+            })}
+          </svg>
+        </div>
+
+        {/* Right - EXPO */}
         <div style={{ width: 220, display: "flex", flexDirection: "column", gap: 6, justifyContent: "center", padding: "0 8px" }}>
           <div style={{ fontSize: 16, fontWeight: 800, color: C.blue, fontFamily: FONT, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ width: 12, height: 12, background: C.blue, borderRadius: "50%", display: "inline-block", boxShadow: "0 0 6px " + C.blue + "80" }} /> EXPORTAÇÃO
+            <span style={{ width: 12, height: 12, background: C.blue, borderRadius: "50%", display: "inline-block", boxShadow: `0 0 6px ${C.blue}80` }} /> EXPORTAÇÃO
           </div>
-          {expoData.length > 0 ? expoData.map(function(g) { return (
-            <div key={g.pais} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.blue, fontFamily: FONT, padding: "4px 0", borderBottom: "1px solid " + C.panelBorder }}>
+          {expoData.length > 0 ? expoData.map(g => (
+            <div key={g.pais} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.blue, fontFamily: FONT, padding: "4px 0", borderBottom: `1px solid ${C.panelBorder}` }}>
               <span style={{ fontWeight: 600 }}>{g.pais}</span>
               <span style={{ fontWeight: 800 }}>{fmtUSD(g.lob)} <span style={{ color: C.muted, fontWeight: 400 }}>({g.count})</span></span>
             </div>
-          ); }) : <div style={{ fontSize: 12, color: C.muted }}>Sem dados no mês</div>}
-          {expoData.length > 0 && <div style={{ fontSize: 14, fontWeight: 800, color: C.blue, fontFamily: FONT, marginTop: 4, paddingTop: 6, borderTop: "2px solid " + C.panelBorder }}>Total: {fmtUSD(totalExpo)}</div>}
+          )) : <div style={{ fontSize: 12, color: C.muted }}>Sem dados no mês</div>}
+          {expoData.length > 0 && <div style={{ fontSize: 14, fontWeight: 800, color: C.blue, fontFamily: FONT, marginTop: 4, paddingTop: 6, borderTop: `2px solid ${C.panelBorder}` }}>Total: {fmtUSD(totalExpo)}</div>}
         </div>
       </div>
     </div>
