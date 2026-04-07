@@ -602,14 +602,22 @@ function processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financia
   // Filter for Doc analysis: 26-25 period
   const docFiltered = opParsed.filter(r => r.etd && r.etd >= docStart && r.etd <= docEnd);
 
-  // Analysis 1: ETD Pontualidade (ETD inicial vs ETD real) — full month
+  // Analysis 1: ETD Pontualidade (ETD inicial vs ETD real) — compare by MONTH
   const etdAnalysis = { noPrazo: 0, antecipado: 0, atrasado: 0, semDados: 0, total: etdFiltered.length };
+  const etdByResponsavel = {};
   etdFiltered.forEach(r => {
     if (!r.etdInicial || !r.etd) { etdAnalysis.semDados++; return; }
-    const diffDays = Math.round((r.etd - r.etdInicial) / (1000 * 60 * 60 * 24));
-    if (diffDays === 0) etdAnalysis.noPrazo++;
-    else if (diffDays < 0) etdAnalysis.antecipado++;
-    else etdAnalysis.atrasado++;
+    const mesInicial = r.etdInicial.getFullYear() * 12 + r.etdInicial.getMonth();
+    const mesReal = r.etd.getFullYear() * 12 + r.etd.getMonth();
+    let status;
+    if (mesReal === mesInicial) { etdAnalysis.noPrazo++; status = "noPrazo"; }
+    else if (mesReal < mesInicial) { etdAnalysis.antecipado++; status = "antecipado"; }
+    else { etdAnalysis.atrasado++; status = "atrasado"; }
+    // By responsavel
+    const resp = r.responsavel || "Sem resp.";
+    if (!etdByResponsavel[resp]) etdByResponsavel[resp] = { name: resp, noPrazo: 0, antecipado: 0, atrasado: 0, total: 0 };
+    etdByResponsavel[resp][status]++;
+    etdByResponsavel[resp].total++;
   });
 
   // Analysis 2: Envio de Documentos (ETD vs Envio, prazo 15 dias) — 26 to 25 period
@@ -630,6 +638,7 @@ function processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financia
     docPeriod,
     etdAnalysis,
     docAnalysis,
+    etdByResponsavel: Object.values(etdByResponsavel).sort((a, b) => b.total - a.total),
     totalEtd: etdFiltered.length,
     totalDoc: docFiltered.length,
   };
@@ -1768,69 +1777,98 @@ function SlideOperacional({ d }) {
   const etd = op.etdAnalysis;
   const doc = op.docAnalysis;
 
-  const DonutChart = ({ data, title, colors, labels, period, totalProc }) => {
-    const total = data.reduce((s, v) => s + v, 0);
-    if (total === 0) return <div style={{ textAlign: "center", color: C.muted, fontSize: 14 }}>Sem dados</div>;
-    const pieData = data.map((v, i) => ({ name: labels[i], value: v, pct: ((v / total) * 100).toFixed(1) })).filter(d => d.value > 0);
-
-    return (
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-        <div style={{ fontSize: 20, fontWeight: 800, color: "#fff", fontFamily: FONT, textAlign: "center" }}>{title}</div>
-        <div style={{ fontSize: 14, color: C.muted, fontFamily: FONT }}>{period} • {totalProc} processos</div>
-        <ResponsiveContainer width="100%" height={250}>
-          <PieChart>
-            <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} innerRadius={50} paddingAngle={3}
-              label={({ name, pct, cx: pcx, cy: pcy, midAngle, outerRadius: or }) => {
-                const rad = -midAngle * Math.PI / 180;
-                const x = pcx + (or + 25) * Math.cos(rad);
-                const y = pcy + (or + 25) * Math.sin(rad);
-                return <text x={x} y={y} textAnchor="middle" fill="#fff" fontSize={12} fontWeight={700} fontFamily={FONT}>{pct}%</text>;
-              }}
-              labelLine={{ stroke: C.muted, strokeWidth: 1 }}>
-              {pieData.map((_, i) => <Cell key={i} fill={colors[labels.indexOf(pieData[i]?.name)] || C.muted} />)}
-            </Pie>
-          </PieChart>
-        </ResponsiveContainer>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%" }}>
-          {pieData.map((p, i) => {
-            const color = colors[labels.indexOf(p.name)] || C.muted;
-            return (
-              <div key={p.name} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", borderRadius: 8, background: `${color}10`, borderLeft: `4px solid ${color}` }}>
-                <span style={{ fontSize: 28, fontWeight: 900, color, fontFamily: FONT }}>{p.value}</span>
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: "#fff", fontFamily: FONT }}>{p.name}</div>
-                  <div style={{ fontSize: 12, color: C.muted, fontFamily: FONT }}>{p.pct}% dos processos</div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  };
-
   return (
-    <div style={{ flex: 1, padding: "0 40px", display: "flex", flexDirection: "column", gap: 12 }}>
+    <div style={{ flex: 1, padding: "0 30px", display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>⚙️ ANÁLISE OPERACIONAL — {d.currentMonthName.toUpperCase()}</div>
-      <div style={{ fontSize: 14, color: C.muted, fontFamily: FONT, textAlign: "center" }}>Embarque: {op.etdPeriod} ({op.totalEtd} proc.) • Documentos: {op.docPeriod} ({op.totalDoc} proc.)</div>
-      <div style={{ display: "flex", gap: 40, flex: 1, justifyContent: "center", alignItems: "flex-start", paddingTop: 12 }}>
-        <DonutChart
-          data={[etd.noPrazo, etd.antecipado, etd.atrasado, etd.semDados]}
-          title="📦 Pontualidade de Embarque"
-          colors={[C.green, C.cyan, C.red, C.muted]}
-          labels={["No prazo", "Antecipado", "Atrasado", "Sem dados"]}
-          period={op.etdPeriod}
-          totalProc={op.totalEtd}
-        />
-        <div style={{ width: 2, background: C.panelBorder, alignSelf: "stretch", margin: "40px 0" }} />
-        <DonutChart
-          data={[doc.noPrazo, doc.antecipado, doc.atrasado, doc.semDados]}
-          title="📄 Envio de Documentos (15 dias)"
-          colors={[C.green, C.cyan, C.red, C.muted]}
-          labels={["No prazo (≤15d)", "Antes do embarque", "Atrasado (>15d)", "Sem dados"]}
-          period={op.docPeriod}
-          totalProc={op.totalDoc}
-        />
+      <div style={{ fontSize: 12, color: C.muted, fontFamily: FONT, textAlign: "center" }}>Embarque: {op.etdPeriod} ({op.totalEtd} proc.) • Documentos: {op.docPeriod} ({op.totalDoc} proc.)</div>
+
+      <div style={{ display: "flex", gap: 20, flex: 1 }}>
+        {/* Left — Pontualidade de Embarque */}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ fontSize: 18, fontWeight: 800, color: "#fff", fontFamily: FONT, textAlign: "center" }}>📦 Pontualidade de Embarque</div>
+          <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT, textAlign: "center" }}>ETD inicial vs ETD real (mesmo mês = no prazo)</div>
+
+          {/* Donut */}
+          <ResponsiveContainer width="100%" height={180}>
+            <PieChart>
+              <Pie data={[
+                etd.noPrazo > 0 && { name: "No prazo", value: etd.noPrazo },
+                etd.antecipado > 0 && { name: "Antecipado", value: etd.antecipado },
+                etd.atrasado > 0 && { name: "Atrasado", value: etd.atrasado },
+                etd.semDados > 0 && { name: "Sem dados", value: etd.semDados },
+              ].filter(Boolean)} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={75} innerRadius={38} paddingAngle={3}
+                label={({ pct, cx: pcx, cy: pcy, midAngle, outerRadius: or }) => { const rad = -midAngle * Math.PI / 180; return <text x={pcx + (or + 20) * Math.cos(rad)} y={pcy + (or + 20) * Math.sin(rad)} textAnchor="middle" fill="#fff" fontSize={11} fontWeight={700} fontFamily={FONT}>{((pct || 0)).toFixed ? pct : ""}%</text>; }}
+                labelLine={{ stroke: C.muted, strokeWidth: 1 }}>
+                {[C.green, C.cyan, C.red, C.muted].slice(0, [etd.noPrazo, etd.antecipado, etd.atrasado, etd.semDados].filter(v => v > 0).length).map((c, i) => <Cell key={i} fill={c} />)}
+              </Pie>
+            </PieChart>
+          </ResponsiveContainer>
+
+          {/* Summary */}
+          <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+            {[{ label: "No prazo", val: etd.noPrazo, color: C.green }, { label: "Antecipado", val: etd.antecipado, color: C.cyan }, { label: "Atrasado", val: etd.atrasado, color: C.red }].filter(x => x.val > 0).map(x => (
+              <div key={x.label} style={{ background: `${x.color}12`, borderLeft: `3px solid ${x.color}`, borderRadius: 6, padding: "6px 12px", textAlign: "center" }}>
+                <div style={{ fontSize: 20, fontWeight: 900, color: x.color, fontFamily: FONT }}>{x.val}</div>
+                <div style={{ fontSize: 10, color: "#fff", fontFamily: FONT }}>{x.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Per Responsavel */}
+          {op.etdByResponsavel && op.etdByResponsavel.length > 0 && (
+            <div style={{ marginTop: 4 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: C.muted, fontFamily: FONT, textAlign: "center", marginBottom: 6 }}>Por Responsável Operacional</div>
+              {op.etdByResponsavel.map(r => {
+                const total = r.noPrazo + r.antecipado + r.atrasado;
+                return (
+                  <div key={r.name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 10px", marginBottom: 3, borderRadius: 6, background: `${C.panelBorder}40` }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "#fff", fontFamily: FONT, width: 70 }}>{r.name}</span>
+                    <div style={{ flex: 1, height: 10, borderRadius: 5, overflow: "hidden", display: "flex" }}>
+                      {r.noPrazo > 0 && <div style={{ width: `${(r.noPrazo / total) * 100}%`, height: "100%", background: C.green }} />}
+                      {r.antecipado > 0 && <div style={{ width: `${(r.antecipado / total) * 100}%`, height: "100%", background: C.cyan }} />}
+                      {r.atrasado > 0 && <div style={{ width: `${(r.atrasado / total) * 100}%`, height: "100%", background: C.red }} />}
+                    </div>
+                    <span style={{ fontSize: 10, color: C.green, fontFamily: FONT, width: 20, textAlign: "center" }}>{r.noPrazo}</span>
+                    <span style={{ fontSize: 10, color: C.cyan, fontFamily: FONT, width: 20, textAlign: "center" }}>{r.antecipado}</span>
+                    <span style={{ fontSize: 10, color: C.red, fontFamily: FONT, width: 20, textAlign: "center" }}>{r.atrasado}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div style={{ width: 2, background: C.panelBorder }} />
+
+        {/* Right — Envio de Documentos */}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ fontSize: 18, fontWeight: 800, color: "#fff", fontFamily: FONT, textAlign: "center" }}>📄 Envio de Documentos (15 dias)</div>
+          <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT, textAlign: "center" }}>Prazo máx. 15 dias após ETD</div>
+
+          <ResponsiveContainer width="100%" height={180}>
+            <PieChart>
+              <Pie data={[
+                doc.noPrazo > 0 && { name: "No prazo", value: doc.noPrazo },
+                doc.antecipado > 0 && { name: "Antes", value: doc.antecipado },
+                doc.atrasado > 0 && { name: "Atrasado", value: doc.atrasado },
+                doc.semDados > 0 && { name: "Sem dados", value: doc.semDados },
+              ].filter(Boolean)} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={75} innerRadius={38} paddingAngle={3}
+                label={({ pct, cx: pcx, cy: pcy, midAngle, outerRadius: or }) => { const rad = -midAngle * Math.PI / 180; return <text x={pcx + (or + 20) * Math.cos(rad)} y={pcy + (or + 20) * Math.sin(rad)} textAnchor="middle" fill="#fff" fontSize={11} fontWeight={700} fontFamily={FONT}>{((pct || 0)).toFixed ? pct : ""}%</text>; }}
+                labelLine={{ stroke: C.muted, strokeWidth: 1 }}>
+                {[C.green, C.cyan, C.red, C.muted].slice(0, [doc.noPrazo, doc.antecipado, doc.atrasado, doc.semDados].filter(v => v > 0).length).map((c, i) => <Cell key={i} fill={c} />)}
+              </Pie>
+            </PieChart>
+          </ResponsiveContainer>
+
+          <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+            {[{ label: "No prazo (≤15d)", val: doc.noPrazo, color: C.green }, { label: "Antes do ETD", val: doc.antecipado, color: C.cyan }, { label: "Atrasado (>15d)", val: doc.atrasado, color: C.red }, { label: "Sem dados", val: doc.semDados, color: C.muted }].filter(x => x.val > 0).map(x => (
+              <div key={x.label} style={{ background: `${x.color}12`, borderLeft: `3px solid ${x.color}`, borderRadius: 6, padding: "6px 12px", textAlign: "center" }}>
+                <div style={{ fontSize: 20, fontWeight: 900, color: x.color, fontFamily: FONT }}>{x.val}</div>
+                <div style={{ fontSize: 10, color: "#fff", fontFamily: FONT }}>{x.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
