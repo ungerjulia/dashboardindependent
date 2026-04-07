@@ -1827,6 +1827,8 @@ function SlideOperacional({ d }) {
   const op = d.operationalData || { etdPeriod: "", docPeriod: "", etdAnalysis: { noPrazo: 0, antecipado: 0, atrasado: 0, semDados: 0 }, docAnalysis: { noPrazo: 0, antecipado: 0, atrasado: 0, semDados: 0 }, etdByResponsavel: [], totalEtd: 0, totalDoc: 0 };
   const etd = op.etdAnalysis;
   const doc = op.docAnalysis;
+  const etdTotal = etd.noPrazo + etd.antecipado + etd.atrasado + (etd.semDados || 0) || 1;
+  const docTotal = doc.noPrazo + doc.antecipado + doc.atrasado + (doc.semDados || 0) || 1;
 
   return (
     <div style={{ flex: 1, padding: "0 30px", display: "flex", flexDirection: "column", gap: 8 }}>
