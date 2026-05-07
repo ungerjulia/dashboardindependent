@@ -27,7 +27,7 @@ function generateEmbarcadosPDF(data) {
   doc.text(`Gerado em: ${now.toLocaleDateString("pt-BR")} ${now.toLocaleTimeString("pt-BR")}`, 250, 22);
 
   // Filter embarcado rows from LOB data
-  const rows = data._rawCurrentMonth.filter(r => r.status.toLowerCase() === "embarcado");
+  const rows = data._rawCurrentMonth.filter(r => r.status.toLowerCase() === "embarcado" || r.status.toLowerCase() === "oper. finalizado");
 
   doc.setFontSize(12);
   doc.setTextColor(0, 0, 0);
@@ -318,13 +318,14 @@ function processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financia
   const yearRows = rows.filter(r => r.etdYear === currentYear);
 
   // Monthly LOB — show from (currentMonth-1) to (currentMonth+2), split by embarcado
-  const chartStart = Math.max(0, currentMonth - 1);
+  const chartStart = 0;
   const chartEnd = Math.min(11, currentMonth + 2);
   const monthlyLOB = [];
   for (let i = chartStart; i <= chartEnd; i++) {
     const monthRows = yearRows.filter(r => r.etdMonth === i);
-    const lobEmbarcado = monthRows.filter(r => r.status.toLowerCase() === "embarcado").reduce((s, r) => s + r.lob, 0);
-    const lobOutros = monthRows.filter(r => r.status.toLowerCase() !== "embarcado").reduce((s, r) => s + r.lob, 0);
+    const isRealizado = (s) => s.toLowerCase() === "embarcado" || s.toLowerCase() === "oper. finalizado";
+    const lobEmbarcado = monthRows.filter(r => isRealizado(r.status)).reduce((s, r) => s + r.lob, 0);
+    const lobOutros = monthRows.filter(r => !isRealizado(r.status)).reduce((s, r) => s + r.lob, 0);
     monthlyLOB.push({ month: MONTH_SHORT[i], monthIndex: i, embarcado: lobEmbarcado, outros: lobOutros, lob: lobEmbarcado + lobOutros });
   }
 
