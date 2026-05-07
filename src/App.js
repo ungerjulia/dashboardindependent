@@ -2147,11 +2147,11 @@ export default function App() {
                   <Line type="monotone" dataKey="meta" name="Meta" stroke={C.red} strokeWidth={2} dot={(props) => { const { cx, cy, value } = props; if (!value) return null; return (<g><circle cx={cx} cy={cy} r={4} fill={C.red} /><text x={cx} y={cy + 16} textAnchor="middle" fill={C.red} fontSize={9} fontWeight={700} fontFamily={FONT}>{fmtUSD(value)}</text></g>); }} />
                 </ComposedChart>
               </ResponsiveContainer>
-              <div style={{ display: "flex", gap: 18, justifyContent: "center", marginTop: 4 }}>
-               <span style={{ fontSize: 11, color: "#fff", display: "flex", alignItems: "center", gap: 5, fontFamily: FONT }}><span style={{ width: 12, height: 3, background: C.red, borderRadius: 2, display: "inline-block" }} /> Meta</span>
+             <div style={{ display: "flex", gap: 18, justifyContent: "center", marginTop: 4 }}>
+                <span style={{ fontSize: 11, color: "#fff", display: "flex", alignItems: "center", gap: 5, fontFamily: FONT }}><span style={{ width: 12, height: 3, background: C.red, borderRadius: 2, display: "inline-block" }} /> Meta</span>
                 <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 14, fontWeight: 800, color: "#fff", fontFamily: FONT }}>Saldo Realizado do Ano:</span>
-                  <span style={{ fontSize: 18, fontWeight: 900, color: (d.lobAnoTotal - d.monthlyLOB.filter(m => m.monthIndex <= new Date().getMonth()).reduce((s, m) => s + (m.meta || 0), 0)) >= 0 ? C.green : C.red, fontFamily: FONT }}>{(d.lobAnoTotal - d.monthlyLOB.filter(m => m.monthIndex <= new Date().getMonth()).reduce((s, m) => s + (m.meta || 0), 0)) >= 0 ? "+" : ""}{fmtUSD(d.lobAnoTotal - d.monthlyLOB.filter(m => m.monthIndex <= new Date().getMonth()).reduce((s, m) => s + (m.meta || 0), 0))}</span>
+                  <span style={{ fontSize: 18, fontWeight: 900, color: (d.monthlyLOB.filter(m => m.monthIndex <= new Date().getMonth()).reduce((s, m) => s + m.embarcado, 0) - d.monthlyLOB.filter(m => m.monthIndex <= new Date().getMonth()).reduce((s, m) => s + (m.meta || 0), 0)) >= 0 ? C.green : C.red, fontFamily: FONT }}>{(d.monthlyLOB.filter(m => m.monthIndex <= new Date().getMonth()).reduce((s, m) => s + m.embarcado, 0) - d.monthlyLOB.filter(m => m.monthIndex <= new Date().getMonth()).reduce((s, m) => s + (m.meta || 0), 0)) >= 0 ? "+" : ""}{fmtUSD(d.monthlyLOB.filter(m => m.monthIndex <= new Date().getMonth()).reduce((s, m) => s + m.embarcado, 0) - d.monthlyLOB.filter(m => m.monthIndex <= new Date().getMonth()).reduce((s, m) => s + (m.meta || 0), 0))}</span>
                 </div>
               </div>
             </Panel>
