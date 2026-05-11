@@ -414,10 +414,11 @@ const lobOutros = monthRows.filter(r => !isRealizado(r.status) && !excluirDoGraf
     linhaMap[r.linha].lobAno += r.lob;
     linhaMap[r.linha].ops += 1;
   });
-  currentMonthRows.forEach(r => {
+ currentMonthRows.forEach(r => {
     if (!r.linha) return;
     if (!linhaMap[r.linha]) linhaMap[r.linha] = { name: r.linha, lobMes: 0, lobAno: 0, ops: 0 };
-    linhaMap[r.linha].lobMes += r.lob;
+    const sl = r.status.toLowerCase();
+    if (sl === "embarcado" || sl === "oper. finalizado") linhaMap[r.linha].lobMes += r.lob;
   });
 
   const linhaMetas = {};
