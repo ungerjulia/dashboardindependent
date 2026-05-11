@@ -349,8 +349,11 @@ const lobOutros = monthRows.filter(r => !isRealizado(r.status) && !excluirDoGraf
   currentMonthRows.forEach(r => {
     if (!r.trader) return;
     if (!traderMap[r.trader]) traderMap[r.trader] = { name: r.trader, lobMes: 0, lobAno: 0, ops: 0, opsMes: 0 };
-    traderMap[r.trader].lobMes += r.lob;
-    traderMap[r.trader].opsMes += 1;
+    const sl = r.status.toLowerCase();
+    if (sl === "embarcado" || sl === "oper. finalizado") {
+      traderMap[r.trader].lobMes += r.lob;
+      traderMap[r.trader].opsMes += 1;
+    }
   });
 
   // Parse Metas_Trader
