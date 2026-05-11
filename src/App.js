@@ -324,8 +324,16 @@ function processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financia
   for (let i = chartStart; i <= chartEnd; i++) {
     const monthRows = yearRows.filter(r => r.etdMonth === i);
     const isRealizado = (s) => s.toLowerCase() === "embarcado" || s.toLowerCase() === "oper. finalizado";
-    const lobEmbarcado = monthRows.filter(r => isRealizado(r.status)).reduce((s, r) => s + r.lob, 0);
-    const lobOutros = monthRows.filter(r => !isRealizado(r.status)).reduce((s, r) => s + r.lob, 0);
+    const hoje = new Date().getDate();
+    const isMesAtual = i === new Date().getMonth();
+    const excluirDoGrafico = (s) => {
+    if (!isMesAtual) return false;
+    if (hoje <= 10) return false;
+    const sl = s.toLowerCase();
+    return sl.includes("sem booking") || sl.includes("aguardando");
+};
+const lobEmbarcado = monthRows.filter(r => isRealizado(r.status)).reduce((s, r) => s + r.lob, 0);
+const lobOutros = monthRows.filter(r => !isRealizado(r.status) && !excluirDoGrafico(r.status)).reduce((s, r) => s + r.lob, 0);
     monthlyLOB.push({ month: MONTH_SHORT[i], monthIndex: i, embarcado: lobEmbarcado, outros: lobOutros, lob: lobEmbarcado + lobOutros });
   }
 
