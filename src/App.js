@@ -487,14 +487,15 @@ const lobOutros = monthRows.filter(r => !isRealizado(r.status) && !excluirDoGraf
     return 0;
   };
 
-  const lobMesAtual = currentMonthRows.reduce((s, r) => s + r.lob, 0);
+  const isRealiz = (s) => s.toLowerCase() === "embarcado" || s.toLowerCase() === "oper. finalizado";
+  const lobMesAtual = currentMonthRows.filter(r => isRealiz(r.status)).reduce((s, r) => s + r.lob, 0);
   const metaMesAtual = matchMeta(MONTH_NAMES[currentMonth]);
-  const lobAnoTotal = yearRows.reduce((s, r) => s + r.lob, 0);
+  const lobAnoTotal = yearRows.filter(r => isRealiz(r.status)).reduce((s, r) => s + r.lob, 0);
   const metaAnoTotal = MONTH_NAMES.reduce((s, m) => s + matchMeta(m), 0);
 
   // Trimestral
   const qStart = Math.floor(currentMonth / 3) * 3;
-  const lobTrimestral = yearRows.filter(r => r.etdMonth >= qStart && r.etdMonth <= currentMonth).reduce((s, r) => s + r.lob, 0);
+  const lobTrimestral = yearRows.filter(r => r.etdMonth >= qStart && r.etdMonth <= currentMonth && isRealiz(r.status)).reduce((s, r) => s + r.lob, 0);
   const metaTrimestral = MONTH_NAMES.slice(qStart, qStart + 3).reduce((s, m) => s + matchMeta(m), 0);
 
   // Status count with LOB
