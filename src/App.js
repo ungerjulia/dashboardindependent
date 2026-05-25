@@ -910,6 +910,61 @@ const lobOutros = monthRows.filter(r => !isRealizado(r.status) && !excluirDoGraf
       return { events, totalEntradas, totalSaidas, saldo: totalEntradas - totalSaidas, weeks, totalProcessos: allFinRows.filter(r => r.etd).length };
     } catch(e) { console.error("cashflow error", e); return { events: [], totalEntradas: 0, totalSaidas: 0, saldo: 0, weeks: [], totalProcessos: 0 }; } })(),
 
+    // ── Financial Ranking: Top fornecedores a pagar + Top clientes a receber (30/60/90 dias) ──
+    financialRanking: (() => { try {
+      const finRows = (financial || []).map(r => {
+        const keys = Object.keys(r);
+        const findK = (s) => keys.find(k => k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[_\s]/g, "").includes(s)) || "";
+        const etdKey = keys.find(k => { const lk = k.toLowerCase().replace(/[_\s]/g, ""); return lk === "etd"; }) || findK("etd") || keys[2];
+        const fornecedorKey = findK("fornecedor") || keys[3];
+        const clienteKey = findK("cliente") || keys[4];
+        const valorCompraKey = findK("valorcompra") || findK("comprafornecedor") || keys[11];
+        const valorVendaKey = findK("valorvenda") || findK("vendacliente") || keys[12];
+        const etd = parseETD(r[etdKey] || "");
+        return {
+          etd,
+          etdMonth: etd ? etd.getMonth() : -1,
+          etdYear: etd ? etd.getFullYear() : -1,
+          fornecedor: (r[fornecedorKey] || "").trim(),
+          cliente: (r[clienteKey] || "").trim(),
+          valorCompra: parseMoney(r[valorCompraKey] || "0"),
+          valorVenda: parseMoney(r[valorVendaKey] || "0"),
+        };
+      }).filter(r => r.etdYear === currentYear);
+
+      const months = [currentMonth, Math.min(currentMonth + 1, 11), Math.min(currentMonth + 2, 11)];
+      const result = months.map(m => {
+        const mRows = finRows.filter(r => r.etdMonth === m);
+        // Fornecedores a pagar
+        const fornMap = {};
+        mRows.forEach(r => {
+          if (!r.fornecedor || r.valorCompra <= 0) return;
+          if (!fornMap[r.fornecedor]) fornMap[r.fornecedor] = { name: r.fornecedor, total: 0, count: 0 };
+          fornMap[r.fornecedor].total += r.valorCompra;
+          fornMap[r.fornecedor].count += 1;
+        });
+        const topForn = Object.values(fornMap).sort((a, b) => b.total - a.total).slice(0, 5);
+        // Clientes a receber
+        const cliMap = {};
+        mRows.forEach(r => {
+          if (!r.cliente || r.valorVenda <= 0) return;
+          if (!cliMap[r.cliente]) cliMap[r.cliente] = { name: r.cliente, total: 0, count: 0 };
+          cliMap[r.cliente].total += r.valorVenda;
+          cliMap[r.cliente].count += 1;
+        });
+        const topCli = Object.values(cliMap).sort((a, b) => b.total - a.total).slice(0, 5);
+        return {
+          month: MONTH_NAMES[m],
+          monthShort: MONTH_SHORT[m],
+          fornecedores: topForn,
+          clientes: topCli,
+          totalPagar: topForn.reduce((s, f) => s + f.total, 0),
+          totalReceber: topCli.reduce((s, c) => s + c.total, 0),
+        };
+      });
+      return result;
+    } catch(e) { console.error("financialRanking error", e); return []; } })(),
+
     currentMonthName: MONTH_NAMES[currentMonth],
     _rawCurrentMonth: currentMonthRows,
   };
@@ -1121,7 +1176,7 @@ function SettingsPanel({ config, setConfig, onClose }) {
     { key: "viewMode", value: "mes", label: "Visão Mensal" },
     { key: "viewMode", value: "ano", label: "Visão Anual" },
   ];
-  const slideIcons = ["📊", "🏆", "🏷️", "📦", "🎯", "📈", "🥧", "⚙️", "👥", "💰", "📅", "🏢", "💸", "📋"];
+  const slideIcons = ["📊", "🏆", "🏷️", "📦", "🎯", "📈", "🥧", "⚙️", "👥", "💰", "📅", "🏢", "💳", "💸", "📋"];
 
   return (
     <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: 340, background: C.panel, borderLeft: `1px solid ${C.panelBorder}`, zIndex: 1000, padding: "20px", display: "flex", flexDirection: "column", gap: 14, overflowY: "auto", boxShadow: "-4px 0 20px rgba(0,0,0,0.5)" }}>
@@ -1172,7 +1227,7 @@ function SettingsPanel({ config, setConfig, onClose }) {
 // ══════════════════════════════════════════════════════════════
 //  CAROUSEL SLIDES
 // ══════════════════════════════════════════════════════════════
-const SLIDE_NAMES = ["Visão Geral", "Ranking de Traders", "Linhas de Negócio", "Status dos Processos", "Metas Globais", "Margens de Venda", "Produtos por Linha", "Análise Operacional", "Processos por Responsável", "Ciclo Financeiro", "Ciclo Mensal", "Prazos Clientes & Fornecedores", "Fluxo de Caixa", "Fluxo Detalhado"];
+const SLIDE_NAMES = ["Visão Geral", "Ranking de Traders", "Linhas de Negócio", "Status dos Processos", "Metas Globais", "Margens de Venda", "Produtos por Linha", "Análise Operacional", "Processos por Responsável", "Ciclo Financeiro", "Ciclo Mensal", "Prazos Clientes & Fornecedores", "Contas a Pagar & Receber", "Fluxo de Caixa", "Fluxo Detalhado"];
 const SLIDE_INTERVAL = 20000;
 const SLIDE_TIMES = {};
 
@@ -1857,6 +1912,78 @@ function SlideRespStatus({ d }) {
 }
 
 
+function SlideFinancialRanking({ d }) {
+  const ranking = d.financialRanking || [];
+  if (ranking.length === 0) return <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: C.muted, fontSize: 18, fontFamily: FONT }}>Sem dados na aba Financial</div>;
+
+  const RankList = ({ items, color, icon, tipo }) => (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
+      {items.map((item, i) => (
+        <div key={item.name} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: `${color}08`, borderLeft: `4px solid ${color}`, borderRadius: 8 }}>
+          <span style={{ fontSize: 20, fontWeight: 900, color, fontFamily: FONT, width: 28, textAlign: "center" }}>{i + 1}</span>
+          <div style={{ flex: 1, overflow: "hidden" }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#fff", fontFamily: FONT, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.name}</div>
+            <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT }}>{item.count} {item.count === 1 ? "processo" : "processos"}</div>
+          </div>
+          <span style={{ fontSize: 18, fontWeight: 900, color, fontFamily: FONT, flexShrink: 0 }}>{fmtUSD(item.total)}</span>
+        </div>
+      ))}
+      {items.length === 0 && <div style={{ color: C.muted, textAlign: "center", fontSize: 13, fontFamily: FONT, padding: 20 }}>Sem dados</div>}
+    </div>
+  );
+
+  return (
+    <div style={{ flex: 1, padding: "0 30px", display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>💰 CONTAS A PAGAR & RECEBER</div>
+      <div style={{ fontSize: 13, color: C.muted, fontFamily: FONT, textAlign: "center" }}>Top 5 Fornecedores (a pagar) e Top 5 Clientes (a receber) — Próximos 90 dias</div>
+
+      <div style={{ display: "flex", gap: 16, flex: 1, paddingTop: 8 }}>
+        {/* FORNECEDORES - A PAGAR */}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontSize: 20, fontWeight: 900, color: C.red, fontFamily: FONT, textAlign: "center" }}>📤 FORNECEDORES — A PAGAR</div>
+          <div style={{ display: "flex", gap: 12, flex: 1 }}>
+            {ranking.map((m, mi) => (
+              <div key={m.month} style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ textAlign: "center", padding: "8px 0", background: `${C.red}12`, borderRadius: 8, border: `1px solid ${C.red}25` }}>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: "#fff", fontFamily: FONT }}>{m.month}</div>
+                  <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT }}>{mi === 0 ? "Mês atual" : mi === 1 ? "Próximo mês" : "Em 2 meses"}</div>
+                </div>
+                <RankList items={m.fornecedores} color={C.red} icon="📤" tipo="pagar" />
+                <div style={{ textAlign: "center", padding: "6px", background: `${C.red}15`, borderRadius: 6 }}>
+                  <span style={{ fontSize: 12, color: C.muted, fontFamily: FONT }}>Total: </span>
+                  <span style={{ fontSize: 16, fontWeight: 900, color: C.red, fontFamily: FONT }}>{fmtUSD(m.fornecedores.reduce((s, f) => s + f.total, 0))}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ width: 2, background: C.panelBorder }} />
+
+        {/* CLIENTES - A RECEBER */}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontSize: 20, fontWeight: 900, color: C.green, fontFamily: FONT, textAlign: "center" }}>📥 CLIENTES — A RECEBER</div>
+          <div style={{ display: "flex", gap: 12, flex: 1 }}>
+            {ranking.map((m, mi) => (
+              <div key={m.month} style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ textAlign: "center", padding: "8px 0", background: `${C.green}12`, borderRadius: 8, border: `1px solid ${C.green}25` }}>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: "#fff", fontFamily: FONT }}>{m.month}</div>
+                  <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT }}>{mi === 0 ? "Mês atual" : mi === 1 ? "Próximo mês" : "Em 2 meses"}</div>
+                </div>
+                <RankList items={m.clientes} color={C.green} icon="📥" tipo="receber" />
+                <div style={{ textAlign: "center", padding: "6px", background: `${C.green}15`, borderRadius: 6 }}>
+                  <span style={{ fontSize: 12, color: C.muted, fontFamily: FONT }}>Total: </span>
+                  <span style={{ fontSize: 16, fontWeight: 900, color: C.green, fontFamily: FONT }}>{fmtUSD(m.clientes.reduce((s, c) => s + c.total, 0))}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SlideProdutos({ d }) {
   const linhas = Object.entries(d.produtosPorLinha);
   const linhaColors = { "Import": C.blue, "Feed Meal": C.cyan, "Meat": "#ff6b6b" };
@@ -1920,7 +2047,7 @@ export default function App() {
     showKPIs: true, showChart: true, showGauges: true,
     showTraders: true, showLinhas: true, showStatus: true,
     viewMode: "mes",
-    tvSlides: { 0: true, 1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true, 9: true, 10: true, 11: true, 12: true, 13: true },
+    tvSlides: { 0: true, 1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true, 9: true, 10: true, 11: true, 12: true, 13: true, 14: true },
   });
 
   const loadData = useCallback(async () => {
@@ -2024,6 +2151,7 @@ export default function App() {
       <SafeSlide><SlideFinancial1 d={d} /></SafeSlide>,
       <SafeSlide><SlideFinancialMensal d={d} /></SafeSlide>,
       <SafeSlide><SlideFinancial2 d={d} /></SafeSlide>,
+      <SafeSlide><SlideFinancialRanking d={d} /></SafeSlide>,
       <SafeSlide><SlideFluxoCaixa1 d={d} /></SafeSlide>,
       <SafeSlide><SlideFluxoCaixa2 d={d} /></SafeSlide>,
     ];
