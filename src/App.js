@@ -962,8 +962,28 @@ const lobOutros = monthRows.filter(r => !isRealizado(r.status) && !excluirDoGraf
           totalReceber: topCli.reduce((s, c) => s + c.total, 0),
         };
       });
-      return result;
-    } catch(e) { console.error("financialRanking error", e); return []; } })(),
+
+      // Ranking anual: mês atual até dezembro
+      const anualRows = finRows.filter(r => r.etdMonth >= currentMonth && r.etdMonth <= 11);
+      const fornAnualMap = {};
+      anualRows.forEach(r => {
+        if (!r.fornecedor || r.valorCompra <= 0) return;
+        if (!fornAnualMap[r.fornecedor]) fornAnualMap[r.fornecedor] = { name: r.fornecedor, total: 0, count: 0 };
+        fornAnualMap[r.fornecedor].total += r.valorCompra;
+        fornAnualMap[r.fornecedor].count += 1;
+      });
+      const topFornAnual = Object.values(fornAnualMap).sort((a, b) => b.total - a.total).slice(0, 5);
+      const cliAnualMap = {};
+      anualRows.forEach(r => {
+        if (!r.cliente || r.valorVenda <= 0) return;
+        if (!cliAnualMap[r.cliente]) cliAnualMap[r.cliente] = { name: r.cliente, total: 0, count: 0 };
+        cliAnualMap[r.cliente].total += r.valorVenda;
+        cliAnualMap[r.cliente].count += 1;
+      });
+      const topCliAnual = Object.values(cliAnualMap).sort((a, b) => b.total - a.total).slice(0, 5);
+
+      return { monthly: result, fornecedoresAnual: topFornAnual, clientesAnual: topCliAnual };
+    } catch(e) { console.error("financialRanking error", e); return { monthly: [], fornecedoresAnual: [], clientesAnual: [] }; } })(),
 
     currentMonthName: MONTH_NAMES[currentMonth],
     _rawCurrentMonth: currentMonthRows,
@@ -1176,7 +1196,7 @@ function SettingsPanel({ config, setConfig, onClose }) {
     { key: "viewMode", value: "mes", label: "Visão Mensal" },
     { key: "viewMode", value: "ano", label: "Visão Anual" },
   ];
-  const slideIcons = ["📊", "🏆", "🏷️", "📦", "🎯", "📈", "🥧", "⚙️", "👥", "💰", "📅", "🏢", "💳", "💸", "📋"];
+  const slideIcons = ["📊", "🏆", "🏷️", "📦", "🎯", "📈", "🥧", "⚙️", "👥", "💰", "📅", "🏢", "📤", "📥", "💸", "📋"];
 
   return (
     <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: 340, background: C.panel, borderLeft: `1px solid ${C.panelBorder}`, zIndex: 1000, padding: "20px", display: "flex", flexDirection: "column", gap: 14, overflowY: "auto", boxShadow: "-4px 0 20px rgba(0,0,0,0.5)" }}>
@@ -1227,7 +1247,7 @@ function SettingsPanel({ config, setConfig, onClose }) {
 // ══════════════════════════════════════════════════════════════
 //  CAROUSEL SLIDES
 // ══════════════════════════════════════════════════════════════
-const SLIDE_NAMES = ["Visão Geral", "Ranking de Traders", "Linhas de Negócio", "Status dos Processos", "Metas Globais", "Margens de Venda", "Produtos por Linha", "Análise Operacional", "Processos por Responsável", "Ciclo Financeiro", "Ciclo Mensal", "Prazos Clientes & Fornecedores", "Contas a Pagar & Receber", "Fluxo de Caixa", "Fluxo Detalhado"];
+const SLIDE_NAMES = ["Visão Geral", "Ranking de Traders", "Linhas de Negócio", "Status dos Processos", "Metas Globais", "Margens de Venda", "Produtos por Linha", "Análise Operacional", "Processos por Responsável", "Ciclo Financeiro", "Ciclo Mensal", "Prazos Clientes & Fornecedores", "Exposição Fornecedores", "Exposição Clientes", "Fluxo de Caixa", "Fluxo Detalhado"];
 const SLIDE_INTERVAL = 20000;
 const SLIDE_TIMES = {};
 
@@ -1912,72 +1932,126 @@ function SlideRespStatus({ d }) {
 }
 
 
-function SlideFinancialRanking({ d }) {
-  const ranking = d.financialRanking || [];
-  if (ranking.length === 0) return <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: C.muted, fontSize: 18, fontFamily: FONT }}>Sem dados na aba Financial</div>;
+function SlideExposicaoFornecedores({ d }) {
+  const data = d.financialRanking || { monthly: [], fornecedoresAnual: [] };
+  const ranking = data.monthly || [];
+  const anual = data.fornecedoresAnual || [];
 
-  const RankList = ({ items, color, icon, tipo }) => (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
+  const RankList = ({ items, color }) => (
+    <div style={{ display: "flex", flexDirection: "column", gap: 5, flex: 1 }}>
       {items.map((item, i) => (
-        <div key={item.name} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: `${color}08`, borderLeft: `4px solid ${color}`, borderRadius: 8 }}>
-          <span style={{ fontSize: 20, fontWeight: 900, color, fontFamily: FONT, width: 28, textAlign: "center" }}>{i + 1}</span>
+        <div key={item.name} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: `${color}08`, borderLeft: `4px solid ${color}`, borderRadius: 8 }}>
+          <span style={{ fontSize: 18, fontWeight: 900, color, fontFamily: FONT, width: 24, textAlign: "center" }}>{i + 1}</span>
           <div style={{ flex: 1, overflow: "hidden" }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: "#fff", fontFamily: FONT, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.name}</div>
-            <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT }}>{item.count} {item.count === 1 ? "processo" : "processos"}</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: FONT, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.name}</div>
+            <div style={{ fontSize: 10, color: C.muted, fontFamily: FONT }}>{item.count} {item.count === 1 ? "processo" : "processos"}</div>
           </div>
-          <span style={{ fontSize: 18, fontWeight: 900, color, fontFamily: FONT, flexShrink: 0 }}>{fmtUSD(item.total)}</span>
+          <span style={{ fontSize: 16, fontWeight: 900, color, fontFamily: FONT, flexShrink: 0 }}>{fmtUSD(item.total)}</span>
         </div>
       ))}
-      {items.length === 0 && <div style={{ color: C.muted, textAlign: "center", fontSize: 13, fontFamily: FONT, padding: 20 }}>Sem dados</div>}
+      {items.length === 0 && <div style={{ color: C.muted, textAlign: "center", fontSize: 13, fontFamily: FONT, padding: 16 }}>Sem dados</div>}
     </div>
   );
 
   return (
-    <div style={{ flex: 1, padding: "0 30px", display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>💰 CONTAS A PAGAR & RECEBER</div>
-      <div style={{ fontSize: 13, color: C.muted, fontFamily: FONT, textAlign: "center" }}>Top 5 Fornecedores (a pagar) e Top 5 Clientes (a receber) — Próximos 90 dias</div>
+    <div style={{ flex: 1, padding: "0 30px", display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>📤 EXPOSIÇÃO VALORES FORNECEDORES</div>
+      <div style={{ fontSize: 13, color: C.muted, fontFamily: FONT, textAlign: "center" }}>Top 5 Fornecedores a pagar — Por mês e acumulado anual ({d.currentMonthName} a Dezembro)</div>
 
-      <div style={{ display: "flex", gap: 16, flex: 1, paddingTop: 8 }}>
-        {/* FORNECEDORES - A PAGAR */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10 }}>
-          <div style={{ fontSize: 20, fontWeight: 900, color: C.red, fontFamily: FONT, textAlign: "center" }}>📤 FORNECEDORES — A PAGAR</div>
-          <div style={{ display: "flex", gap: 12, flex: 1 }}>
-            {ranking.map((m, mi) => (
-              <div key={m.month} style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
-                <div style={{ textAlign: "center", padding: "8px 0", background: `${C.red}12`, borderRadius: 8, border: `1px solid ${C.red}25` }}>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: "#fff", fontFamily: FONT }}>{m.month}</div>
-                  <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT }}>{mi === 0 ? "Mês atual" : mi === 1 ? "Próximo mês" : "Em 2 meses"}</div>
-                </div>
-                <RankList items={m.fornecedores} color={C.red} icon="📤" tipo="pagar" />
-                <div style={{ textAlign: "center", padding: "6px", background: `${C.red}15`, borderRadius: 6 }}>
-                  <span style={{ fontSize: 12, color: C.muted, fontFamily: FONT }}>Total: </span>
-                  <span style={{ fontSize: 16, fontWeight: 900, color: C.red, fontFamily: FONT }}>{fmtUSD(m.fornecedores.reduce((s, f) => s + f.total, 0))}</span>
-                </div>
-              </div>
-            ))}
+      {/* Monthly ranking */}
+      <div style={{ display: "flex", gap: 12, flex: 1 }}>
+        {ranking.map((m, mi) => (
+          <div key={m.month} style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ textAlign: "center", padding: "8px 0", background: `${C.red}12`, borderRadius: 8, border: `1px solid ${C.red}25` }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: "#fff", fontFamily: FONT }}>{m.month}</div>
+              <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT }}>{mi === 0 ? "Mês atual" : mi === 1 ? "Próximo mês" : "Em 2 meses"}</div>
+            </div>
+            <RankList items={m.fornecedores} color={C.red} />
+            <div style={{ textAlign: "center", padding: "6px", background: `${C.red}15`, borderRadius: 6, marginTop: "auto" }}>
+              <span style={{ fontSize: 12, color: C.muted, fontFamily: FONT }}>Total: </span>
+              <span style={{ fontSize: 16, fontWeight: 900, color: C.red, fontFamily: FONT }}>{fmtUSD(m.fornecedores.reduce((s, f) => s + f.total, 0))}</span>
+            </div>
           </div>
+        ))}
+      </div>
+
+      {/* Annual ranking */}
+      <div style={{ borderTop: `2px solid ${C.panelBorder}`, paddingTop: 10 }}>
+        <div style={{ fontSize: 18, fontWeight: 800, color: C.amber, fontFamily: FONT, textAlign: "center", marginBottom: 8 }}>🏆 RANKING ANUAL — {d.currentMonthName} a Dezembro</div>
+        <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+          {anual.map((item, i) => (
+            <div key={item.name} style={{ flex: 1, maxWidth: 260, display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: `${C.amber}08`, borderLeft: `4px solid ${C.amber}`, borderRadius: 8 }}>
+              <span style={{ fontSize: 22, fontWeight: 900, color: C.amber, fontFamily: FONT, width: 28 }}>{i + 1}</span>
+              <div style={{ flex: 1, overflow: "hidden" }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: FONT, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.name}</div>
+                <div style={{ fontSize: 10, color: C.muted, fontFamily: FONT }}>{item.count} processos</div>
+              </div>
+              <span style={{ fontSize: 18, fontWeight: 900, color: C.amber, fontFamily: FONT, flexShrink: 0 }}>{fmtUSD(item.total)}</span>
+            </div>
+          ))}
         </div>
+      </div>
+    </div>
+  );
+}
 
-        <div style={{ width: 2, background: C.panelBorder }} />
+function SlideExposicaoClientes({ d }) {
+  const data = d.financialRanking || { monthly: [], clientesAnual: [] };
+  const ranking = data.monthly || [];
+  const anual = data.clientesAnual || [];
 
-        {/* CLIENTES - A RECEBER */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10 }}>
-          <div style={{ fontSize: 20, fontWeight: 900, color: C.green, fontFamily: FONT, textAlign: "center" }}>📥 CLIENTES — A RECEBER</div>
-          <div style={{ display: "flex", gap: 12, flex: 1 }}>
-            {ranking.map((m, mi) => (
-              <div key={m.month} style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
-                <div style={{ textAlign: "center", padding: "8px 0", background: `${C.green}12`, borderRadius: 8, border: `1px solid ${C.green}25` }}>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: "#fff", fontFamily: FONT }}>{m.month}</div>
-                  <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT }}>{mi === 0 ? "Mês atual" : mi === 1 ? "Próximo mês" : "Em 2 meses"}</div>
-                </div>
-                <RankList items={m.clientes} color={C.green} icon="📥" tipo="receber" />
-                <div style={{ textAlign: "center", padding: "6px", background: `${C.green}15`, borderRadius: 6 }}>
-                  <span style={{ fontSize: 12, color: C.muted, fontFamily: FONT }}>Total: </span>
-                  <span style={{ fontSize: 16, fontWeight: 900, color: C.green, fontFamily: FONT }}>{fmtUSD(m.clientes.reduce((s, c) => s + c.total, 0))}</span>
-                </div>
-              </div>
-            ))}
+  const RankList = ({ items, color }) => (
+    <div style={{ display: "flex", flexDirection: "column", gap: 5, flex: 1 }}>
+      {items.map((item, i) => (
+        <div key={item.name} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: `${color}08`, borderLeft: `4px solid ${color}`, borderRadius: 8 }}>
+          <span style={{ fontSize: 18, fontWeight: 900, color, fontFamily: FONT, width: 24, textAlign: "center" }}>{i + 1}</span>
+          <div style={{ flex: 1, overflow: "hidden" }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: FONT, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.name}</div>
+            <div style={{ fontSize: 10, color: C.muted, fontFamily: FONT }}>{item.count} {item.count === 1 ? "processo" : "processos"}</div>
           </div>
+          <span style={{ fontSize: 16, fontWeight: 900, color, fontFamily: FONT, flexShrink: 0 }}>{fmtUSD(item.total)}</span>
+        </div>
+      ))}
+      {items.length === 0 && <div style={{ color: C.muted, textAlign: "center", fontSize: 13, fontFamily: FONT, padding: 16 }}>Sem dados</div>}
+    </div>
+  );
+
+  return (
+    <div style={{ flex: 1, padding: "0 30px", display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>📥 EXPOSIÇÃO VALORES CLIENTES</div>
+      <div style={{ fontSize: 13, color: C.muted, fontFamily: FONT, textAlign: "center" }}>Top 5 Clientes a receber — Por mês e acumulado anual ({d.currentMonthName} a Dezembro)</div>
+
+      {/* Monthly ranking */}
+      <div style={{ display: "flex", gap: 12, flex: 1 }}>
+        {ranking.map((m, mi) => (
+          <div key={m.month} style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ textAlign: "center", padding: "8px 0", background: `${C.green}12`, borderRadius: 8, border: `1px solid ${C.green}25` }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: "#fff", fontFamily: FONT }}>{m.month}</div>
+              <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT }}>{mi === 0 ? "Mês atual" : mi === 1 ? "Próximo mês" : "Em 2 meses"}</div>
+            </div>
+            <RankList items={m.clientes} color={C.green} />
+            <div style={{ textAlign: "center", padding: "6px", background: `${C.green}15`, borderRadius: 6, marginTop: "auto" }}>
+              <span style={{ fontSize: 12, color: C.muted, fontFamily: FONT }}>Total: </span>
+              <span style={{ fontSize: 16, fontWeight: 900, color: C.green, fontFamily: FONT }}>{fmtUSD(m.clientes.reduce((s, c) => s + c.total, 0))}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Annual ranking */}
+      <div style={{ borderTop: `2px solid ${C.panelBorder}`, paddingTop: 10 }}>
+        <div style={{ fontSize: 18, fontWeight: 800, color: C.cyan, fontFamily: FONT, textAlign: "center", marginBottom: 8 }}>🏆 RANKING ANUAL — {d.currentMonthName} a Dezembro</div>
+        <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+          {anual.map((item, i) => (
+            <div key={item.name} style={{ flex: 1, maxWidth: 260, display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: `${C.cyan}08`, borderLeft: `4px solid ${C.cyan}`, borderRadius: 8 }}>
+              <span style={{ fontSize: 22, fontWeight: 900, color: C.cyan, fontFamily: FONT, width: 28 }}>{i + 1}</span>
+              <div style={{ flex: 1, overflow: "hidden" }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: FONT, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.name}</div>
+                <div style={{ fontSize: 10, color: C.muted, fontFamily: FONT }}>{item.count} processos</div>
+              </div>
+              <span style={{ fontSize: 18, fontWeight: 900, color: C.cyan, fontFamily: FONT, flexShrink: 0 }}>{fmtUSD(item.total)}</span>
+            </div>
+          ))}
         </div>
       </div>
     </div>
@@ -2047,7 +2121,7 @@ export default function App() {
     showKPIs: true, showChart: true, showGauges: true,
     showTraders: true, showLinhas: true, showStatus: true,
     viewMode: "mes",
-    tvSlides: { 0: true, 1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true, 9: true, 10: true, 11: true, 12: true, 13: true, 14: true },
+    tvSlides: { 0: true, 1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true, 9: true, 10: true, 11: true, 12: true, 13: true, 14: true, 15: true },
   });
 
   const loadData = useCallback(async () => {
@@ -2151,7 +2225,8 @@ export default function App() {
       <SafeSlide><SlideFinancial1 d={d} /></SafeSlide>,
       <SafeSlide><SlideFinancialMensal d={d} /></SafeSlide>,
       <SafeSlide><SlideFinancial2 d={d} /></SafeSlide>,
-      <SafeSlide><SlideFinancialRanking d={d} /></SafeSlide>,
+      <SafeSlide><SlideExposicaoFornecedores d={d} /></SafeSlide>,
+      <SafeSlide><SlideExposicaoClientes d={d} /></SafeSlide>,
       <SafeSlide><SlideFluxoCaixa1 d={d} /></SafeSlide>,
       <SafeSlide><SlideFluxoCaixa2 d={d} /></SafeSlide>,
     ];
