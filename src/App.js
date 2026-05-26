@@ -1967,10 +1967,6 @@ function SlideExposicaoFornecedores({ d }) {
               <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT }}>{mi === 0 ? "Mês atual" : mi === 1 ? "Próximo mês" : "Em 2 meses"}</div>
             </div>
             <RankList items={m.fornecedores} color={C.red} />
-            <div style={{ textAlign: "center", padding: "6px", background: `${C.red}15`, borderRadius: 6, marginTop: "auto" }}>
-              <span style={{ fontSize: 12, color: C.muted, fontFamily: FONT }}>Total: </span>
-              <span style={{ fontSize: 16, fontWeight: 900, color: C.red, fontFamily: FONT }}>{fmtUSD(m.fornecedores.reduce((s, f) => s + f.total, 0))}</span>
-            </div>
           </div>
         ))}
       </div>
@@ -2030,10 +2026,6 @@ function SlideExposicaoClientes({ d }) {
               <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT }}>{mi === 0 ? "Mês atual" : mi === 1 ? "Próximo mês" : "Em 2 meses"}</div>
             </div>
             <RankList items={m.clientes} color={C.green} />
-            <div style={{ textAlign: "center", padding: "6px", background: `${C.green}15`, borderRadius: 6, marginTop: "auto" }}>
-              <span style={{ fontSize: 12, color: C.muted, fontFamily: FONT }}>Total: </span>
-              <span style={{ fontSize: 16, fontWeight: 900, color: C.green, fontFamily: FONT }}>{fmtUSD(m.clientes.reduce((s, c) => s + c.total, 0))}</span>
-            </div>
           </div>
         ))}
       </div>
