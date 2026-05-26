@@ -1972,17 +1972,17 @@ function SlideExposicaoFornecedores({ d }) {
       </div>
 
       {/* Annual ranking */}
-      <div style={{ borderTop: `2px solid ${C.panelBorder}`, paddingTop: 10 }}>
-        <div style={{ fontSize: 18, fontWeight: 800, color: C.amber, fontFamily: FONT, textAlign: "center", marginBottom: 8 }}>🏆 RANKING ANUAL — {d.currentMonthName} a Dezembro</div>
-        <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+      <div style={{ borderTop: `2px solid ${C.amber}30`, paddingTop: 16, marginTop: 8 }}>
+        <div style={{ fontSize: 22, fontWeight: 900, color: C.amber, fontFamily: FONT, textAlign: "center", marginBottom: 16 }}>🏆 RANKING ANUAL — {d.currentMonthName} a Dezembro</div>
+        <div style={{ display: "flex", gap: 16, justifyContent: "center" }}>
           {anual.map((item, i) => (
-            <div key={item.name} style={{ flex: 1, maxWidth: 260, display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: `${C.amber}08`, borderLeft: `4px solid ${C.amber}`, borderRadius: 8 }}>
-              <span style={{ fontSize: 22, fontWeight: 900, color: C.amber, fontFamily: FONT, width: 28 }}>{i + 1}</span>
+            <div key={item.name} style={{ flex: 1, maxWidth: 300, display: "flex", alignItems: "center", gap: 14, padding: "16px 18px", background: `${C.amber}10`, border: `1px solid ${C.amber}30`, borderLeft: `5px solid ${C.amber}`, borderRadius: 10 }}>
+              <span style={{ fontSize: 32, fontWeight: 900, color: C.amber, fontFamily: FONT, width: 36, textAlign: "center" }}>{i + 1}</span>
               <div style={{ flex: 1, overflow: "hidden" }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: FONT, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.name}</div>
-                <div style={{ fontSize: 10, color: C.muted, fontFamily: FONT }}>{item.count} processos</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: "#fff", fontFamily: FONT, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.name}</div>
+                <div style={{ fontSize: 12, color: C.muted, fontFamily: FONT, marginTop: 2 }}>{item.count} processos</div>
               </div>
-              <span style={{ fontSize: 18, fontWeight: 900, color: C.amber, fontFamily: FONT, flexShrink: 0 }}>{fmtUSD(item.total)}</span>
+              <span style={{ fontSize: 22, fontWeight: 900, color: C.amber, fontFamily: FONT, flexShrink: 0 }}>{fmtUSD(item.total)}</span>
             </div>
           ))}
         </div>
@@ -2031,17 +2031,17 @@ function SlideExposicaoClientes({ d }) {
       </div>
 
       {/* Annual ranking */}
-      <div style={{ borderTop: `2px solid ${C.panelBorder}`, paddingTop: 10 }}>
-        <div style={{ fontSize: 18, fontWeight: 800, color: C.cyan, fontFamily: FONT, textAlign: "center", marginBottom: 8 }}>🏆 RANKING ANUAL — {d.currentMonthName} a Dezembro</div>
-        <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+      <div style={{ borderTop: `2px solid ${C.cyan}30`, paddingTop: 16, marginTop: 8 }}>
+        <div style={{ fontSize: 22, fontWeight: 900, color: C.cyan, fontFamily: FONT, textAlign: "center", marginBottom: 16 }}>🏆 RANKING ANUAL — {d.currentMonthName} a Dezembro</div>
+        <div style={{ display: "flex", gap: 16, justifyContent: "center" }}>
           {anual.map((item, i) => (
-            <div key={item.name} style={{ flex: 1, maxWidth: 260, display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: `${C.cyan}08`, borderLeft: `4px solid ${C.cyan}`, borderRadius: 8 }}>
-              <span style={{ fontSize: 22, fontWeight: 900, color: C.cyan, fontFamily: FONT, width: 28 }}>{i + 1}</span>
+            <div key={item.name} style={{ flex: 1, maxWidth: 300, display: "flex", alignItems: "center", gap: 14, padding: "16px 18px", background: `${C.cyan}10`, border: `1px solid ${C.cyan}30`, borderLeft: `5px solid ${C.cyan}`, borderRadius: 10 }}>
+              <span style={{ fontSize: 32, fontWeight: 900, color: C.cyan, fontFamily: FONT, width: 36, textAlign: "center" }}>{i + 1}</span>
               <div style={{ flex: 1, overflow: "hidden" }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: FONT, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.name}</div>
-                <div style={{ fontSize: 10, color: C.muted, fontFamily: FONT }}>{item.count} processos</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: "#fff", fontFamily: FONT, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.name}</div>
+                <div style={{ fontSize: 12, color: C.muted, fontFamily: FONT, marginTop: 2 }}>{item.count} processos</div>
               </div>
-              <span style={{ fontSize: 18, fontWeight: 900, color: C.cyan, fontFamily: FONT, flexShrink: 0 }}>{fmtUSD(item.total)}</span>
+              <span style={{ fontSize: 22, fontWeight: 900, color: C.cyan, fontFamily: FONT, flexShrink: 0 }}>{fmtUSD(item.total)}</span>
             </div>
           ))}
         </div>
