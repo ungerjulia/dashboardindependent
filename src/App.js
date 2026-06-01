@@ -2649,7 +2649,7 @@ export default function App() {
         fetchSheet("Fiancial").catch(() => fetchSheet("Financial").catch(() => [])),
         fetchSheet("Base termos de pgto").catch(() => []),
         fetchSheet("Base termos de pgto").catch(() => []),
-        fetchSheet("LOB_2025").catch(() => []),
+        fetchSheet("LOB 2025").catch(() => []),
         fetchSheet("Meta_Global_2025").catch(() => []),
         fetchSheet("Meta_linhadenegocio_2025").catch(() => []),
       ]);
