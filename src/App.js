@@ -2354,10 +2354,10 @@ function SlideSazonalidade({ d }) {
 
           return (
             <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
-              {/* LOB values on top */}
-              <div style={{ display: "flex", gap: 2, width: "100%", justifyContent: "center", minHeight: 28 }}>
-                <div style={{ fontSize: 8, fontWeight: 700, color: C.amber, fontFamily: FONT, textAlign: "center", flex: 1 }}>{fmtUSD(m25.lob)}</div>
-                {!isFuture && <div style={{ fontSize: 8, fontWeight: 700, color: C.cyan, fontFamily: FONT, textAlign: "center", flex: 1 }}>{fmtUSD(lob26)}</div>}
+              {/* LOB values on top - right above bars */}
+              <div style={{ display: "flex", gap: 2, width: "100%", justifyContent: "center" }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: C.amber, fontFamily: FONT, textAlign: "center", flex: 1 }}>{fmtUSD(m25.lob)}</div>
+                {!isFuture && <div style={{ fontSize: 11, fontWeight: 800, color: C.cyan, fontFamily: FONT, textAlign: "center", flex: 1 }}>{fmtUSD(lob26)}</div>}
               </div>
 
               {/* Bars */}
@@ -2375,9 +2375,9 @@ function SlideSazonalidade({ d }) {
               </div>
 
               {/* Meta values below */}
-              <div style={{ display: "flex", gap: 2, width: "100%", justifyContent: "center", minHeight: 20 }}>
-                <div style={{ fontSize: 7, fontWeight: 600, color: `${C.amber}90`, fontFamily: FONT, textAlign: "center", flex: 1 }}>{fmtUSD(m25.meta)}</div>
-                {!isFuture && meta26 > 0 && <div style={{ fontSize: 7, fontWeight: 600, color: `${C.cyan}90`, fontFamily: FONT, textAlign: "center", flex: 1 }}>{fmtUSD(meta26)}</div>}
+              <div style={{ display: "flex", gap: 2, width: "100%", justifyContent: "center" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: `${C.amber}aa`, fontFamily: FONT, textAlign: "center", flex: 1 }}>{fmtUSD(m25.meta)}</div>
+                {!isFuture && meta26 > 0 && <div style={{ fontSize: 10, fontWeight: 700, color: `${C.cyan}aa`, fontFamily: FONT, textAlign: "center", flex: 1 }}>{fmtUSD(meta26)}</div>}
               </div>
 
               {/* Month label */}
