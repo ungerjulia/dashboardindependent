@@ -446,7 +446,7 @@ function fmtUSD(v) {
 // ══════════════════════════════════════════════════════════════
 //  DATA PROCESSING
 // ══════════════════════════════════════════════════════════════
-function processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financial, termosCliente, termosFornecedor) {
+function processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financial, termosCliente, termosFornecedor, lob2025, metaGlobal2025, metaLinha2025) {
   const now = new Date();
   const currentMonth = now.getMonth();
   const currentYear = now.getFullYear();
@@ -1170,6 +1170,120 @@ const lobOutros = monthRows.filter(r => !isRealizado(r.status) && !excluirDoGraf
     _rawCurrentMonth: currentMonthRows,
 
     // Previous month data for "Fechamento Mês Anterior" PDF
+    // ── Sazonalidade & Projeção (2025 vs 2026) ──
+    seasonalData: (() => { try {
+      if (!lob2025 || lob2025.length === 0) return null;
+
+      // Parse 2025 rows same way as current LOB
+      const sampleKeys25 = lob2025.length > 0 ? Object.keys(lob2025[0]) : [];
+      const hm25 = {};
+      sampleKeys25.forEach(k => {
+        const lk = k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[_\s]/g, "");
+        if (lk.includes("numero") || lk.includes("processo") && !lk.includes("status")) hm25.processo = k;
+        if (lk.includes("status")) hm25.status = k;
+        if (lk === "etd") hm25.etd = k;
+        if (lk === "lob") hm25.lob = k;
+        if (lk.includes("linhadenegocio") || (lk.includes("linha") && lk.includes("negocio"))) hm25.linha = k;
+        if (lk === "trader") hm25.trader = k;
+      });
+
+      const rows25 = lob2025.map(r => {
+        const etd = parseETD(r[hm25.etd] || "");
+        return {
+          processo: (r[hm25.processo] || "").trim(),
+          status: (r[hm25.status] || "").trim(),
+          linha: (r[hm25.linha] || "").trim(),
+          trader: (r[hm25.trader] || "").trim(),
+          etd,
+          etdMonth: etd ? etd.getMonth() : -1,
+          etdYear: etd ? etd.getFullYear() : -1,
+          lob: parseMoney(r[hm25.lob] || "0"),
+        };
+      }).filter(r => r.etdYear === 2025);
+
+      // Parse 2025 metas
+      const metaGlobal25 = {};
+      (metaGlobal2025 || []).forEach(r => {
+        const keys = Object.keys(r);
+        const mesKey = keys.find(k => k.trim().toLowerCase().startsWith("m") && k.trim().length < 10) || keys[0];
+        const metaKey = keys.find(k => k.trim().toLowerCase().includes("meta")) || keys[1];
+        const mes = (r[mesKey] || "").trim();
+        const val = parseMoney(r[metaKey] || "0");
+        if (mes) metaGlobal25[mes] = val;
+      });
+      const matchMeta25 = (monthName) => {
+        if (metaGlobal25[monthName]) return metaGlobal25[monthName];
+        const norm = monthName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+        for (const [k, v] of Object.entries(metaGlobal25)) {
+          if (k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() === norm) return v;
+        }
+        return 0;
+      };
+
+      // Monthly LOB 2025 (all statuses - year is closed)
+      const monthly25 = [];
+      for (let m = 0; m < 12; m++) {
+        const mRows = rows25.filter(r => r.etdMonth === m);
+        const lobTotal = mRows.reduce((s, r) => s + r.lob, 0);
+        const meta = matchMeta25(MONTH_NAMES[m]);
+        monthly25.push({ month: MONTH_SHORT[m], monthFull: MONTH_NAMES[m], monthIndex: m, lob: lobTotal, meta, count: mRows.length });
+      }
+
+      // Monthly LOB 2026 (realized only: embarcado + oper. finalizado)
+      const monthly26 = [];
+      for (let m = 0; m <= Math.min(currentMonth + 2, 11); m++) {
+        const mRows = yearRows.filter(r => r.etdMonth === m);
+        const isReal = (s) => s.toLowerCase() === "embarcado" || s.toLowerCase() === "oper. finalizado";
+        const lobReal = mRows.filter(r => isReal(r.status)).reduce((s, r) => s + r.lob, 0);
+        const lobAll = mRows.reduce((s, r) => s + r.lob, 0);
+        const meta = matchMeta(MONTH_NAMES[m]);
+        monthly26.push({ month: MONTH_SHORT[m], monthFull: MONTH_NAMES[m], monthIndex: m, lobReal, lobAll, meta, count: mRows.length });
+      }
+
+      // Seasonal index: each month's share of total 2025
+      const total25 = monthly25.reduce((s, m) => s + m.lob, 0) || 1;
+      const avgMonth25 = total25 / 12;
+      const seasonalIndex = monthly25.map(m => ({ ...m, index: avgMonth25 > 0 ? (m.lob / avgMonth25) : 0 }));
+
+      // Growth factor: 2026 realized (completed months) vs 2025 same period
+      const completedMonths = currentMonth; // months 0 to currentMonth-1 are complete
+      const lob25Completed = monthly25.filter(m => m.monthIndex < completedMonths).reduce((s, m) => s + m.lob, 0) || 1;
+      const lob26Completed = monthly26.filter(m => m.monthIndex < completedMonths).reduce((s, m) => s + m.lobReal, 0);
+      const growthFactor = lob25Completed > 0 ? lob26Completed / lob25Completed : 1;
+
+      // Projection: for months from currentMonth to December
+      const projection = [];
+      for (let m = 0; m < 12; m++) {
+        const actual26 = monthly26.find(x => x.monthIndex === m);
+        if (m < completedMonths) {
+          // Completed month - use actual 2026 realized
+          projection.push({ month: MONTH_SHORT[m], monthFull: MONTH_NAMES[m], monthIndex: m, lob2025: monthly25[m].lob, lob2026: actual26 ? actual26.lobReal : 0, projected: false, meta2026: actual26 ? actual26.meta : matchMeta(MONTH_NAMES[m]) });
+        } else if (m === currentMonth) {
+          // Current month - use actual (partial)
+          projection.push({ month: MONTH_SHORT[m], monthFull: MONTH_NAMES[m], monthIndex: m, lob2025: monthly25[m].lob, lob2026: actual26 ? actual26.lobReal : 0, projected: false, isCurrent: true, meta2026: actual26 ? actual26.meta : matchMeta(MONTH_NAMES[m]) });
+        } else {
+          // Future month - project based on 2025 × growth factor
+          const projected = monthly25[m].lob * growthFactor;
+          projection.push({ month: MONTH_SHORT[m], monthFull: MONTH_NAMES[m], monthIndex: m, lob2025: monthly25[m].lob, lob2026: projected, projected: true, meta2026: matchMeta(MONTH_NAMES[m]) });
+        }
+      }
+
+      const projectedTotal = projection.reduce((s, p) => s + p.lob2026, 0);
+      const metaAnual26 = MONTH_NAMES.reduce((s, m) => s + matchMeta(m), 0);
+
+      // Linha comparison 2025 vs 2026
+      const linhas25 = {};
+      rows25.forEach(r => { if (r.linha) { if (!linhas25[r.linha]) linhas25[r.linha] = 0; linhas25[r.linha] += r.lob; } });
+      const linhas26 = {};
+      const isReal26 = (s) => s.toLowerCase() === "embarcado" || s.toLowerCase() === "oper. finalizado";
+      yearRows.filter(r => isReal26(r.status)).forEach(r => { if (r.linha) { if (!linhas26[r.linha]) linhas26[r.linha] = 0; linhas26[r.linha] += r.lob; } });
+
+      return {
+        monthly25, monthly26, seasonalIndex, growthFactor, projection, projectedTotal, metaAnual26, total25,
+        linhas25, linhas26,
+      };
+    } catch(e) { console.error("seasonal error", e); return null; } })(),
+
     prevMonthData: (() => {
       const pm = currentMonth === 0 ? 11 : currentMonth - 1;
       const pmYear = currentMonth === 0 ? currentYear - 1 : currentYear;
@@ -1454,7 +1568,7 @@ function SettingsPanel({ config, setConfig, onClose }) {
     { key: "viewMode", value: "mes", label: "Visão Mensal" },
     { key: "viewMode", value: "ano", label: "Visão Anual" },
   ];
-  const slideIcons = ["📊", "🏆", "🏷️", "📦", "🎯", "📈", "🥧", "⚙️", "👥", "💰", "📅", "🏢", "📤", "📤", "📥", "📥"];
+  const slideIcons = ["📊", "🏆", "🏷️", "📦", "🎯", "📈", "🥧", "⚙️", "👥", "💰", "📅", "🏢", "📈", "🔮", "📤", "📤", "📥", "📥"];
 
   return (
     <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: 340, background: C.panel, borderLeft: `1px solid ${C.panelBorder}`, zIndex: 1000, padding: "20px", display: "flex", flexDirection: "column", gap: 14, overflowY: "auto", boxShadow: "-4px 0 20px rgba(0,0,0,0.5)" }}>
@@ -1505,7 +1619,7 @@ function SettingsPanel({ config, setConfig, onClose }) {
 // ══════════════════════════════════════════════════════════════
 //  CAROUSEL SLIDES
 // ══════════════════════════════════════════════════════════════
-const SLIDE_NAMES = ["Visão Geral", "Ranking de Traders", "Linhas de Negócio", "Status dos Processos", "Metas Globais", "Margens de Venda", "Produtos por Linha", "Análise Operacional", "Processos por Responsável", "Ciclo Financeiro", "Ciclo Mensal", "Prazos Clientes & Fornecedores", "Fornecedores Mensal", "Fornecedores Anual", "Clientes Mensal", "Clientes Anual"];
+const SLIDE_NAMES = ["Visão Geral", "Ranking de Traders", "Linhas de Negócio", "Status dos Processos", "Metas Globais", "Margens de Venda", "Produtos por Linha", "Análise Operacional", "Processos por Responsável", "Ciclo Financeiro", "Ciclo Mensal", "Prazos Clientes & Fornecedores", "Sazonalidade 2025 vs 2026", "Projeção 2026", "Fornecedores Mensal", "Fornecedores Anual", "Clientes Mensal", "Clientes Anual"];
 const SLIDE_INTERVAL = 20000;
 const SLIDE_TIMES = {};
 
@@ -2190,6 +2304,132 @@ function SlideRespStatus({ d }) {
 }
 
 
+function SlideSazonalidade({ d }) {
+  const s = d.seasonalData;
+  if (!s) return <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: C.muted, fontSize: 18, fontFamily: FONT }}>Sem dados de 2025 — configure a aba LOB_2025</div>;
+
+  const maxLob = Math.max(...s.monthly25.map(m => m.lob), ...s.monthly26.filter(m => !m.projected).map(m => m.lobReal || 0)) || 1;
+  const growthPct = ((s.growthFactor - 1) * 100).toFixed(1);
+  const growthColor = s.growthFactor >= 1 ? C.green : C.red;
+
+  return (
+    <div style={{ flex: 1, padding: "0 24px", display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ fontSize: 26, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>📈 SAZONALIDADE — 2025 vs 2026</div>
+      <div style={{ display: "flex", justifyContent: "center", gap: 24, fontSize: 12, color: C.muted, fontFamily: FONT }}>
+        <span>Padrão sazonal baseado em 2025 • Fator de crescimento: <span style={{ color: growthColor, fontWeight: 800, fontSize: 14 }}>{s.growthFactor >= 1 ? "+" : ""}{growthPct}%</span></span>
+      </div>
+
+      {/* Bar chart 2025 vs 2026 */}
+      <div style={{ flex: 1, display: "flex", alignItems: "flex-end", gap: 4, padding: "8px 0" }}>
+        {s.monthly25.map((m25, i) => {
+          const m26 = s.monthly26.find(x => x.monthIndex === i);
+          const h25 = maxLob > 0 ? (m25.lob / maxLob) * 100 : 0;
+          const h26 = m26 ? (maxLob > 0 ? ((m26.lobReal || 0) / maxLob) * 100 : 0) : 0;
+          const isPast = i < new Date().getMonth();
+          const isCurrent = i === new Date().getMonth();
+          const isFuture = i > new Date().getMonth();
+          return (
+            <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+              {m26 && !isFuture && <div style={{ fontSize: 10, fontWeight: 700, color: C.cyan, fontFamily: FONT }}>{fmtUSD(m26.lobReal || 0)}</div>}
+              <div style={{ width: "100%", display: "flex", gap: 3, justifyContent: "center", alignItems: "flex-end", height: 280 }}>
+                <div style={{ width: "40%", height: `${h25}%`, background: `${C.amber}50`, borderRadius: "4px 4px 0 0", minHeight: h25 > 0 ? 4 : 0 }} title={`2025: ${fmtUSD(m25.lob)}`} />
+                {!isFuture && <div style={{ width: "40%", height: `${h26}%`, background: isCurrent ? `${C.cyan}80` : C.cyan, borderRadius: "4px 4px 0 0", minHeight: h26 > 0 ? 4 : 0, border: isCurrent ? `1px dashed ${C.cyan}` : "none" }} title={`2026: ${fmtUSD(m26?.lobReal || 0)}`} />}
+              </div>
+              <div style={{ fontSize: 9, fontWeight: 700, color: m25.lob > 0 ? C.amber : C.muted, fontFamily: FONT }}>{fmtUSD(m25.lob)}</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: isCurrent ? "#fff" : C.muted, fontFamily: FONT, background: isCurrent ? `${C.cyan}30` : "transparent", padding: "2px 6px", borderRadius: 4 }}>{m25.month}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Legend + Seasonal Index */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 16 }}>
+          <span style={{ fontSize: 12, color: "#fff", display: "flex", alignItems: "center", gap: 5, fontFamily: FONT }}><span style={{ width: 14, height: 10, background: `${C.amber}50`, borderRadius: 2, display: "inline-block" }} /> 2025</span>
+          <span style={{ fontSize: 12, color: "#fff", display: "flex", alignItems: "center", gap: 5, fontFamily: FONT }}><span style={{ width: 14, height: 10, background: C.cyan, borderRadius: 2, display: "inline-block" }} /> 2026 (realizado)</span>
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <span style={{ fontSize: 12, color: C.muted, fontFamily: FONT }}>Índice sazonal:</span>
+          {s.seasonalIndex.map((m, i) => {
+            const color = m.index >= 1.2 ? C.green : m.index >= 0.8 ? C.cyan : C.red;
+            return <span key={i} style={{ fontSize: 10, fontWeight: 700, color, fontFamily: FONT, padding: "1px 4px", background: `${color}15`, borderRadius: 3 }}>{m.month} {m.index.toFixed(1)}x</span>;
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SlideProjecao({ d }) {
+  const s = d.seasonalData;
+  if (!s) return <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: C.muted, fontSize: 18, fontFamily: FONT }}>Sem dados de 2025 — configure a aba LOB_2025</div>;
+
+  const cm = new Date().getMonth();
+  const growthPct = ((s.growthFactor - 1) * 100).toFixed(1);
+  const projDiff = s.projectedTotal - s.metaAnual26;
+  const maxVal = Math.max(...s.projection.map(p => Math.max(p.lob2026, p.meta2026))) || 1;
+
+  return (
+    <div style={{ flex: 1, padding: "0 24px", display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ fontSize: 26, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>🔮 PROJEÇÃO {new Date().getFullYear()} — BASEADA EM 2025</div>
+      <div style={{ fontSize: 12, color: C.muted, fontFamily: FONT, textAlign: "center" }}>Meses futuros projetados com base no padrão sazonal de 2025 × fator de crescimento ({s.growthFactor >= 1 ? "+" : ""}{growthPct}%)</div>
+
+      {/* Projection KPIs */}
+      <div style={{ display: "flex", gap: 16, justifyContent: "center" }}>
+        <div style={{ background: `${C.cyan}12`, border: `1px solid ${C.cyan}30`, borderRadius: 10, padding: "12px 24px", textAlign: "center" }}>
+          <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT }}>LOB Projetado Anual</div>
+          <div style={{ fontSize: 28, fontWeight: 900, color: C.cyan, fontFamily: FONT }}>{fmtUSD(s.projectedTotal)}</div>
+        </div>
+        <div style={{ background: `${C.red}12`, border: `1px solid ${C.red}30`, borderRadius: 10, padding: "12px 24px", textAlign: "center" }}>
+          <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT }}>Meta Anual 2026</div>
+          <div style={{ fontSize: 28, fontWeight: 900, color: C.red, fontFamily: FONT }}>{fmtUSD(s.metaAnual26)}</div>
+        </div>
+        <div style={{ background: `${projDiff >= 0 ? C.green : C.red}12`, border: `2px solid ${projDiff >= 0 ? C.green : C.red}40`, borderRadius: 10, padding: "12px 24px", textAlign: "center" }}>
+          <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT }}>Projeção vs Meta</div>
+          <div style={{ fontSize: 28, fontWeight: 900, color: projDiff >= 0 ? C.green : C.red, fontFamily: FONT }}>{projDiff >= 0 ? "+" : ""}{fmtUSD(projDiff)}</div>
+        </div>
+        <div style={{ background: `${C.amber}12`, border: `1px solid ${C.amber}30`, borderRadius: 10, padding: "12px 24px", textAlign: "center" }}>
+          <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT }}>Total 2025</div>
+          <div style={{ fontSize: 28, fontWeight: 900, color: C.amber, fontFamily: FONT }}>{fmtUSD(s.total25)}</div>
+        </div>
+      </div>
+
+      {/* Monthly projection bars */}
+      <div style={{ flex: 1, display: "flex", gap: 6, alignItems: "flex-end", padding: "4px 0" }}>
+        {s.projection.map((p, i) => {
+          const h = maxVal > 0 ? (p.lob2026 / maxVal) * 100 : 0;
+          const isPast = p.monthIndex < cm;
+          const isCurrent = p.monthIndex === cm;
+          const color = p.projected ? `${C.amber}60` : isCurrent ? `${C.cyan}80` : C.cyan;
+          const borderStyle = p.projected ? `2px dashed ${C.amber}` : isCurrent ? `2px dashed ${C.cyan}` : "none";
+          return (
+            <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: p.projected ? C.amber : "#fff", fontFamily: FONT }}>{fmtUSD(p.lob2026)}</div>
+              <div style={{ width: "70%", height: `${Math.max(h, 2)}%`, maxHeight: 240, background: color, borderRadius: "4px 4px 0 0", border: borderStyle, position: "relative" }}>
+                {/* Meta line indicator */}
+                {p.meta2026 > 0 && (() => {
+                  const metaH = (p.meta2026 / maxVal) * 100;
+                  const metaPos = h > 0 ? ((h - metaH * h / 100) / h) * 100 : 0;
+                  return <div style={{ position: "absolute", left: -4, right: -4, bottom: `${(p.meta2026 / maxVal) * 100 / h * 100}%`, height: 2, background: C.red, borderRadius: 1 }} />;
+                })()}
+              </div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: isCurrent ? "#fff" : C.muted, fontFamily: FONT, background: isCurrent ? `${C.cyan}30` : p.projected ? `${C.amber}15` : "transparent", padding: "2px 6px", borderRadius: 4 }}>{p.month}</div>
+              {p.projected && <div style={{ fontSize: 8, color: C.amber, fontFamily: FONT }}>projeção</div>}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Legend */}
+      <div style={{ display: "flex", gap: 20, justifyContent: "center" }}>
+        <span style={{ fontSize: 12, color: "#fff", display: "flex", alignItems: "center", gap: 5, fontFamily: FONT }}><span style={{ width: 14, height: 10, background: C.cyan, borderRadius: 2, display: "inline-block" }} /> Realizado 2026</span>
+        <span style={{ fontSize: 12, color: "#fff", display: "flex", alignItems: "center", gap: 5, fontFamily: FONT }}><span style={{ width: 14, height: 10, background: `${C.amber}60`, borderRadius: 2, border: `1px dashed ${C.amber}`, display: "inline-block" }} /> Projeção (padrão 2025)</span>
+        <span style={{ fontSize: 12, color: "#fff", display: "flex", alignItems: "center", gap: 5, fontFamily: FONT }}><span style={{ width: 14, height: 3, background: C.red, borderRadius: 2, display: "inline-block" }} /> Meta 2026</span>
+      </div>
+    </div>
+  );
+}
+
 function SlideExposicaoFornMensal({ d }) {
   const data = d.financialRanking || { monthly: [] };
   const ranking = data.monthly || [];
@@ -2397,21 +2637,24 @@ export default function App() {
     showKPIs: true, showChart: true, showGauges: true,
     showTraders: true, showLinhas: true, showStatus: true,
     viewMode: "mes",
-    tvSlides: { 0: true, 1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true, 9: true, 10: true, 11: true, 12: true, 13: true, 14: true, 15: true },
+    tvSlides: { 0: true, 1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true, 9: true, 10: true, 11: true, 12: true, 13: true, 14: true, 15: true, 16: true, 17: true },
   });
 
   const loadData = useCallback(async () => {
     try {
-      const [lob, metasTrader, metaLinha, metaGlobal, operacao, financial, termosCliente, termosFornecedor] = await Promise.all([
+      const [lob, metasTrader, metaLinha, metaGlobal, operacao, financial, termosCliente, termosFornecedor, lob2025, metaGlobal2025, metaLinha2025] = await Promise.all([
         fetchSheet("LOB"), fetchSheet("Metas_Trader"),
         fetchSheet("Meta_linhadenegocio"), fetchSheet("Meta_Global"),
         fetchSheet("Operação").catch(() => fetchSheet("Operacao").catch(() => [])),
         fetchSheet("Fiancial").catch(() => fetchSheet("Financial").catch(() => [])),
         fetchSheet("Base termos de pgto").catch(() => []),
         fetchSheet("Base termos de pgto").catch(() => []),
+        fetchSheet("LOB_2025").catch(() => []),
+        fetchSheet("Meta_Global_2025").catch(() => []),
+        fetchSheet("Meta_linhadenegocio_2025").catch(() => []),
       ]);
       try {
-        const processed = processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financial, termosCliente, termosFornecedor);
+        const processed = processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financial, termosCliente, termosFornecedor, lob2025, metaGlobal2025, metaLinha2025);
         setData(processed);
         setLastUpdate(new Date());
         setError(null);
@@ -2419,7 +2662,7 @@ export default function App() {
         console.error("processData error:", pe);
         // Try basic processData without new features
         try {
-          const basic = processData(lob, metasTrader, metaLinha, metaGlobal, [], [], [], []);
+          const basic = processData(lob, metasTrader, metaLinha, metaGlobal, [], [], [], [], [], [], []);
           setData(basic);
           setLastUpdate(new Date());
           setError(null);
@@ -2501,6 +2744,8 @@ export default function App() {
       <SafeSlide><SlideFinancial1 d={d} /></SafeSlide>,
       <SafeSlide><SlideFinancialMensal d={d} /></SafeSlide>,
       <SafeSlide><SlideFinancial2 d={d} /></SafeSlide>,
+      <SafeSlide><SlideSazonalidade d={d} /></SafeSlide>,
+      <SafeSlide><SlideProjecao d={d} /></SafeSlide>,
       <SafeSlide><SlideExposicaoFornMensal d={d} /></SafeSlide>,
       <SafeSlide><SlideExposicaoFornAnual d={d} /></SafeSlide>,
       <SafeSlide><SlideExposicaoCliMensal d={d} /></SafeSlide>,
