@@ -2354,22 +2354,22 @@ function SlideSazonalidade({ d }) {
 
           return (
             <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
-              {/* LOB values on top - right above bars */}
-              <div style={{ display: "flex", gap: 2, width: "100%", justifyContent: "center" }}>
-                <div style={{ fontSize: 11, fontWeight: 800, color: C.amber, fontFamily: FONT, textAlign: "center", flex: 1 }}>{fmtUSD(m25.lob)}</div>
-                {!isFuture && <div style={{ fontSize: 11, fontWeight: 800, color: C.cyan, fontFamily: FONT, textAlign: "center", flex: 1 }}>{fmtUSD(lob26)}</div>}
-              </div>
-
-              {/* Bars */}
+              {/* Bars with LOB on top of each */}
               <div style={{ width: "100%", display: "flex", gap: 2, justifyContent: "center", alignItems: "flex-end", flex: 1 }}>
-                {/* 2025 bar */}
-                <div style={{ width: isFuture ? "80%" : "45%", height: `${Math.max(h25, 3)}%`, background: `linear-gradient(180deg, ${C.amber}80, ${C.amber}40)`, borderRadius: "3px 3px 0 0", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", minHeight: 20 }}>
-                  <span style={{ fontSize: 9, fontWeight: 900, color: "#fff", fontFamily: FONT }}>{pct25}%</span>
+                {/* 2025 bar + LOB */}
+                <div style={{ width: isFuture ? "80%" : "45%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%" }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: C.amber, fontFamily: FONT, marginBottom: 2 }}>{fmtUSD(m25.lob)}</div>
+                  <div style={{ width: "100%", height: `${Math.max(h25, 3)}%`, background: `linear-gradient(180deg, ${C.amber}80, ${C.amber}40)`, borderRadius: "3px 3px 0 0", display: "flex", alignItems: "center", justifyContent: "center", minHeight: 20 }}>
+                    <span style={{ fontSize: 9, fontWeight: 900, color: "#fff", fontFamily: FONT }}>{pct25}%</span>
+                  </div>
                 </div>
-                {/* 2026 bar */}
+                {/* 2026 bar + LOB */}
                 {!isFuture && (
-                  <div style={{ width: "45%", height: `${Math.max(h26, 3)}%`, background: isCurrent ? `linear-gradient(180deg, ${C.cyan}90, ${C.cyan}50)` : `linear-gradient(180deg, ${C.cyan}, ${C.cyan}80)`, borderRadius: "3px 3px 0 0", display: "flex", alignItems: "center", justifyContent: "center", border: isCurrent ? `1px dashed ${C.cyan}` : "none", minHeight: 20 }}>
-                    <span style={{ fontSize: 9, fontWeight: 900, color: "#fff", fontFamily: FONT }}>{pct26}%</span>
+                  <div style={{ width: "45%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%" }}>
+                    <div style={{ fontSize: 10, fontWeight: 800, color: C.cyan, fontFamily: FONT, marginBottom: 2 }}>{fmtUSD(lob26)}</div>
+                    <div style={{ width: "100%", height: `${Math.max(h26, 3)}%`, background: isCurrent ? `linear-gradient(180deg, ${C.cyan}90, ${C.cyan}50)` : `linear-gradient(180deg, ${C.cyan}, ${C.cyan}80)`, borderRadius: "3px 3px 0 0", display: "flex", alignItems: "center", justifyContent: "center", border: isCurrent ? `1px dashed ${C.cyan}` : "none", minHeight: 20 }}>
+                      <span style={{ fontSize: 9, fontWeight: 900, color: "#fff", fontFamily: FONT }}>{pct26}%</span>
+                    </div>
                   </div>
                 )}
               </div>
