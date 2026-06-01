@@ -194,6 +194,187 @@ function generateResumoMesPDF(data) {
   doc.save(`IB_Resumo_${monthName}_${now.getFullYear()}.pdf`);
 }
 
+function generateFechamentoMesAnteriorPDF(data) {
+  const doc = new jsPDF("landscape");
+  const now = new Date();
+  const pm = data.prevMonthData;
+  const fUSD = (v) => `$ ${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  // ── PAGE 1: Header ──
+  doc.setFillColor(10, 14, 23);
+  doc.rect(0, 0, 297, 35, "F");
+  doc.setFontSize(22);
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.text("INDEPENDENT BRAZIL", 15, 16);
+  doc.setFontSize(12);
+  doc.setTextColor(0, 230, 118);
+  doc.text(`FECHAMENTO ${pm.month.toUpperCase()} ${pm.year}`, 15, 26);
+  doc.setFontSize(9);
+  doc.setTextColor(150, 150, 150);
+  doc.text(`Gerado em: ${now.toLocaleDateString("pt-BR")} ${now.toLocaleTimeString("pt-BR")}`, 220, 26);
+
+  // Summary bar
+  doc.setFillColor(20, 30, 50);
+  doc.roundedRect(15, 40, 267, 18, 3, 3, "F");
+  doc.setFontSize(11);
+  doc.setTextColor(255, 255, 255);
+  doc.text(`LOB Realizado: ${fUSD(pm.lobTotal)}`, 25, 51);
+  doc.setTextColor(255, 23, 68);
+  doc.text(`Meta: ${fUSD(pm.meta)}`, 120, 51);
+  const diff = pm.lobTotal - pm.meta;
+  doc.setTextColor(diff >= 0 ? 0 : 255, diff >= 0 ? 230 : 23, diff >= 0 ? 118 : 68);
+  doc.text(`${diff >= 0 ? "+" : ""}${fUSD(diff)}  (${pm.pct.toFixed(1)}%)`, 200, 51);
+
+  // Processos embarcados table
+  doc.setFontSize(14);
+  doc.setTextColor(0, 0, 0);
+  doc.setFont("helvetica", "bold");
+  doc.text(`Processos Realizados — ${pm.month} ${pm.year}  (${pm.rows.length} processos)`, 15, 68);
+
+  doc.autoTable({
+    startY: 72,
+    head: [["Processo", "Resp. Operacional", "Trader", "Cliente", "Fornecedor", "Produto", "ETD", "LOB (USD)"]],
+    body: pm.rows.map(r => [
+      r.processo,
+      r.responsavel,
+      r.trader,
+      r.cliente ? r.cliente.substring(0, 28) : "",
+      r.fornecedor ? r.fornecedor.substring(0, 28) : "",
+      r.produto ? r.produto.substring(0, 25) : "",
+      r.etd ? r.etd.toLocaleDateString("pt-BR") : "",
+      fUSD(r.lob),
+    ]),
+    styles: { fontSize: 7.5, cellPadding: 2.5, font: "helvetica" },
+    headStyles: { fillColor: [10, 14, 23], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 8 },
+    alternateRowStyles: { fillColor: [240, 240, 245] },
+    foot: [["", "", "", "", "", "", "TOTAL", fUSD(pm.lobTotal)]],
+    footStyles: { fillColor: [10, 14, 23], textColor: [0, 230, 118], fontStyle: "bold", fontSize: 9 },
+  });
+
+  // ── PAGE 2: Atingimento de Metas ──
+  doc.addPage();
+  doc.setFillColor(10, 14, 23);
+  doc.rect(0, 0, 297, 30, "F");
+  doc.setFontSize(18);
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.text("INDEPENDENT BRAZIL", 15, 14);
+  doc.setFontSize(12);
+  doc.setTextColor(0, 230, 118);
+  doc.text(`ATINGIMENTO DE METAS — ${pm.month.toUpperCase()} ${pm.year}`, 15, 24);
+
+  let y = 40;
+
+  // Meta Global
+  doc.setFillColor(20, 30, 50);
+  doc.roundedRect(15, y, 267, 22, 3, 3, "F");
+  doc.setFontSize(14);
+  doc.setTextColor(255, 255, 255);
+  doc.text("META GLOBAL", 25, y + 10);
+  doc.setFontSize(18);
+  const globalColor = pm.pct >= 100 ? [0, 230, 118] : [255, 171, 0];
+  doc.setTextColor(...globalColor);
+  doc.text(`${pm.pct.toFixed(1)}%`, 120, y + 14);
+  doc.setFontSize(11);
+  doc.setTextColor(200, 200, 200);
+  doc.text(`${fUSD(pm.lobTotal)} / ${fUSD(pm.meta)}`, 170, y + 14);
+  y += 32;
+
+  // Linhas de Negócio
+  doc.setFontSize(14);
+  doc.setTextColor(0, 0, 0);
+  doc.setFont("helvetica", "bold");
+  doc.text("LINHAS DE NEGÓCIO", 15, y);
+  y += 4;
+
+  doc.autoTable({
+    startY: y,
+    head: [["Linha de Negócio", "LOB Realizado", "Meta", "% Atingido", "Diferença", "Processos"]],
+    body: pm.linhas.map(l => {
+      const diff = l.lob - l.meta;
+      return [
+        l.name,
+        fUSD(l.lob),
+        fUSD(l.meta),
+        `${l.pct.toFixed(1)}%`,
+        `${diff >= 0 ? "+" : ""}${fUSD(diff)}`,
+        l.ops.toString(),
+      ];
+    }),
+    styles: { fontSize: 10, cellPadding: 4, font: "helvetica" },
+    headStyles: { fillColor: [10, 14, 23], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 10 },
+    columnStyles: {
+      3: { fontStyle: "bold" },
+      4: { fontStyle: "bold" },
+    },
+    didParseCell: function(data) {
+      if (data.section === "body" && data.column.index === 3) {
+        const pct = parseFloat(data.cell.text[0]);
+        data.cell.styles.textColor = pct >= 100 ? [0, 180, 90] : [255, 140, 0];
+      }
+      if (data.section === "body" && data.column.index === 4) {
+        const txt = data.cell.text[0];
+        data.cell.styles.textColor = txt.startsWith("+") ? [0, 180, 90] : [220, 20, 60];
+      }
+    },
+  });
+
+  y = doc.lastAutoTable.finalY + 16;
+
+  // Ranking de Traders
+  doc.setFontSize(14);
+  doc.setTextColor(0, 0, 0);
+  doc.setFont("helvetica", "bold");
+  doc.text("RANKING DE TRADERS", 15, y);
+  y += 4;
+
+  doc.autoTable({
+    startY: y,
+    head: [["#", "Trader", "LOB Realizado", "Meta", "% Atingido", "Diferença", "Processos"]],
+    body: pm.traders.map((t, i) => {
+      const diff = t.lob - t.meta;
+      return [
+        (i + 1).toString(),
+        t.name,
+        fUSD(t.lob),
+        fUSD(t.meta),
+        `${t.pct.toFixed(1)}%`,
+        `${diff >= 0 ? "+" : ""}${fUSD(diff)}`,
+        t.ops.toString(),
+      ];
+    }),
+    styles: { fontSize: 10, cellPadding: 4, font: "helvetica" },
+    headStyles: { fillColor: [10, 14, 23], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 10 },
+    columnStyles: {
+      0: { cellWidth: 15, halign: "center", fontStyle: "bold" },
+      4: { fontStyle: "bold" },
+      5: { fontStyle: "bold" },
+    },
+    didParseCell: function(data) {
+      if (data.section === "body" && data.column.index === 4) {
+        const pct = parseFloat(data.cell.text[0]);
+        data.cell.styles.textColor = pct >= 100 ? [0, 180, 90] : [255, 140, 0];
+      }
+      if (data.section === "body" && data.column.index === 5) {
+        const txt = data.cell.text[0];
+        data.cell.styles.textColor = txt.startsWith("+") ? [0, 180, 90] : [220, 20, 60];
+      }
+    },
+  });
+
+  // Footer on all pages
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(8);
+    doc.setTextColor(150, 150, 150);
+    doc.text(`Independent Brazil • Fechamento ${pm.month} ${pm.year} • Página ${i}/${pageCount}`, 15, doc.internal.pageSize.height - 8);
+  }
+
+  doc.save(`IB_Fechamento_${pm.month}_${pm.year}.pdf`);
+}
+
 // ══════════════════════════════════════════════════════════════
 //  CONFIG
 // ══════════════════════════════════════════════════════════════
@@ -987,6 +1168,83 @@ const lobOutros = monthRows.filter(r => !isRealizado(r.status) && !excluirDoGraf
 
     currentMonthName: MONTH_NAMES[currentMonth],
     _rawCurrentMonth: currentMonthRows,
+
+    // Previous month data for "Fechamento Mês Anterior" PDF
+    prevMonthData: (() => {
+      const pm = currentMonth === 0 ? 11 : currentMonth - 1;
+      const pmYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+      const pmName = MONTH_NAMES[pm];
+      const pmRows = rows.filter(r => r.etdMonth === pm && r.etdYear === pmYear);
+      const pmRealizado = pmRows.filter(r => r.status.toLowerCase() === "embarcado" || r.status.toLowerCase() === "oper. finalizado");
+      const pmLobTotal = pmRealizado.reduce((s, r) => s + r.lob, 0);
+      const pmMeta = matchMeta(pmName);
+      const pmPct = pmMeta > 0 ? (pmLobTotal / pmMeta * 100) : 0;
+
+      // Helper: find previous month meta column for traders/linhas
+      const pmNorm = pmName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+      const findPmMeta = (sheetRows, nameField) => {
+        const map = {};
+        sheetRows.forEach(r => {
+          const keys = Object.keys(r);
+          const nk = keys.find(k => k.toLowerCase().replace(/[_\s]/g, "").includes(nameField)) || keys[0];
+          const name = (r[nk] || "").trim();
+          let mk = keys.find(k => k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim() === pmNorm);
+          if (!mk) mk = keys.find(k => k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim().startsWith(pmNorm.substring(0, 3)));
+          const val = parseMoney(mk ? (r[mk] || "0") : "0");
+          if (name) map[name] = val;
+        });
+        return map;
+      };
+      const pmTraderMetas = findPmMeta(metasTrader, "trader");
+      const pmLinhaMetas = findPmMeta(metaLinha, "linha");
+
+      const findPmTraderMeta = (name) => {
+        if (pmTraderMetas[name]) return pmTraderMetas[name];
+        const n = name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+        for (const [k, v] of Object.entries(pmTraderMetas)) {
+          const nk = k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+          if (nk === n || nk.includes(n) || n.includes(nk)) return v;
+        }
+        return 0;
+      };
+      const findPmLinhaMeta = (name) => {
+        if (pmLinhaMetas[name]) return pmLinhaMetas[name];
+        const n = name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+        for (const [k, v] of Object.entries(pmLinhaMetas)) {
+          const nk = k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+          if (nk === n || nk.includes(n) || n.includes(nk)) return v;
+        }
+        return 0;
+      };
+
+      // Trader ranking prev month
+      const pmTraderMap = {};
+      pmRealizado.forEach(r => {
+        if (!r.trader) return;
+        if (!pmTraderMap[r.trader]) pmTraderMap[r.trader] = { name: r.trader, lob: 0, ops: 0 };
+        pmTraderMap[r.trader].lob += r.lob;
+        pmTraderMap[r.trader].ops += 1;
+      });
+      const pmTraders = Object.values(pmTraderMap).map(t => {
+        const meta = findPmTraderMeta(t.name);
+        return { ...t, meta, pct: meta > 0 ? (t.lob / meta * 100) : 0 };
+      }).sort((a, b) => b.lob - a.lob);
+
+      // Linha ranking prev month
+      const pmLinhaMap = {};
+      pmRealizado.forEach(r => {
+        if (!r.linha) return;
+        if (!pmLinhaMap[r.linha]) pmLinhaMap[r.linha] = { name: r.linha, lob: 0, ops: 0 };
+        pmLinhaMap[r.linha].lob += r.lob;
+        pmLinhaMap[r.linha].ops += 1;
+      });
+      const pmLinhas = Object.values(pmLinhaMap).map(l => {
+        const meta = findPmLinhaMeta(l.name);
+        return { ...l, meta, pct: meta > 0 ? (l.lob / meta * 100) : 0 };
+      }).sort((a, b) => b.lob - a.lob);
+
+      return { month: pmName, year: pmYear, rows: pmRealizado, allRows: pmRows, lobTotal: pmLobTotal, meta: pmMeta, pct: pmPct, traders: pmTraders, linhas: pmLinhas };
+    })(),
   };
 }
 
@@ -2317,6 +2575,10 @@ export default function App() {
                 </button>
                 <button onClick={() => { generateResumoMesPDF(d); setReportsOpen(false); }} style={{ width: "100%", background: "none", border: "none", padding: "10px 14px", cursor: "pointer", textAlign: "left", borderRadius: 6, color: "#fff", fontFamily: FONT, fontSize: 13, display: "flex", alignItems: "center", gap: 8 }} onMouseOver={e => e.currentTarget.style.background = C.panelBorder} onMouseOut={e => e.currentTarget.style.background = "none"}>
                   📊 <span>Resumo Geral — {d.currentMonthName}</span>
+                </button>
+                <div style={{ height: 1, background: C.panelBorder, margin: "4px 0" }} />
+                <button onClick={() => { generateFechamentoMesAnteriorPDF(d); setReportsOpen(false); }} style={{ width: "100%", background: "none", border: "none", padding: "10px 14px", cursor: "pointer", textAlign: "left", borderRadius: 6, color: "#fff", fontFamily: FONT, fontSize: 13, display: "flex", alignItems: "center", gap: 8 }} onMouseOver={e => e.currentTarget.style.background = C.panelBorder} onMouseOut={e => e.currentTarget.style.background = "none"}>
+                  📋 <span>Fechamento Mês Anterior — {d.prevMonthData.month}</span>
                 </button>
               </div>
             )}
