@@ -1568,7 +1568,7 @@ function SettingsPanel({ config, setConfig, onClose }) {
     { key: "viewMode", value: "mes", label: "Visão Mensal" },
     { key: "viewMode", value: "ano", label: "Visão Anual" },
   ];
-  const slideIcons = ["📊", "🏆", "🏷️", "📦", "🎯", "📈", "🥧", "⚙️", "👥", "💰", "📅", "🏢", "📈", "📤", "📤", "📥", "📥"];
+  const slideIcons = ["📊", "🏆", "🏷️", "📦", "🎯", "📈", "🥧", "⚙️", "👥", "💰", "📅", "🏢", "📈"];
 
   return (
     <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: 340, background: C.panel, borderLeft: `1px solid ${C.panelBorder}`, zIndex: 1000, padding: "20px", display: "flex", flexDirection: "column", gap: 14, overflowY: "auto", boxShadow: "-4px 0 20px rgba(0,0,0,0.5)" }}>
@@ -1619,7 +1619,7 @@ function SettingsPanel({ config, setConfig, onClose }) {
 // ══════════════════════════════════════════════════════════════
 //  CAROUSEL SLIDES
 // ══════════════════════════════════════════════════════════════
-const SLIDE_NAMES = ["Visão Geral", "Ranking de Traders", "Linhas de Negócio", "Status dos Processos", "Metas Globais", "Margens de Venda", "Produtos por Linha", "Análise Operacional", "Processos por Responsável", "Ciclo Financeiro", "Ciclo Mensal", "Prazos Clientes & Fornecedores", "Sazonalidade 2025 vs 2026", "Fornecedores Mensal", "Fornecedores Anual", "Clientes Mensal", "Clientes Anual"];
+const SLIDE_NAMES = ["Visão Geral", "Ranking de Traders", "Linhas de Negócio", "Status dos Processos", "Metas Globais", "Margens de Venda", "Produtos por Linha", "Análise Operacional", "Processos por Responsável", "Ciclo Financeiro", "Ciclo Mensal", "Prazos Clientes & Fornecedores", "Sazonalidade 2025 vs 2026"];
 const SLIDE_INTERVAL = 20000;
 const SLIDE_TIMES = {};
 
@@ -2673,7 +2673,7 @@ export default function App() {
     showKPIs: true, showChart: true, showGauges: true,
     showTraders: true, showLinhas: true, showStatus: true,
     viewMode: "mes",
-    tvSlides: { 0: true, 1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true, 9: true, 10: true, 11: true, 12: true, 13: true, 14: true, 15: true, 16: true },
+    tvSlides: { 0: true, 1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true, 9: true, 10: true, 11: true, 12: true },
   });
 
   const loadData = useCallback(async () => {
@@ -2781,10 +2781,6 @@ export default function App() {
       <SafeSlide><SlideFinancialMensal d={d} /></SafeSlide>,
       <SafeSlide><SlideFinancial2 d={d} /></SafeSlide>,
       <SafeSlide><SlideSazonalidade d={d} /></SafeSlide>,
-      <SafeSlide><SlideExposicaoFornMensal d={d} /></SafeSlide>,
-      <SafeSlide><SlideExposicaoFornAnual d={d} /></SafeSlide>,
-      <SafeSlide><SlideExposicaoCliMensal d={d} /></SafeSlide>,
-      <SafeSlide><SlideExposicaoCliAnual d={d} /></SafeSlide>,
     ];
     const enabledIndices = SLIDE_NAMES.map((_, i) => i).filter(i => config.tvSlides[i]);
     const slides = enabledIndices.map(i => allSlides[i]);
