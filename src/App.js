@@ -812,6 +812,7 @@ const lobOutros = monthRows.filter(r => !isRealizado(r.status) && !excluirDoGraf
 
   return {
     monthlyLOB: monthlyWithMeta,
+    lobRows: yearRows,
     traderRanking,
     linhaRanking,
     lobMesAtual, metaMesAtual,
@@ -2658,6 +2659,215 @@ function SlideProdutos({ d }) {
 // ══════════════════════════════════════════════════════════════
 //  MAIN DASHBOARD WITH CAROUSEL
 // ══════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
+//  CONSULTA POR TRADER (tela interativa — drill-down)
+//  Trader → Mês → Status → Processos (Nº + LOB)
+// ══════════════════════════════════════════════════════════════
+function TraderConsulta({ d, onExit }) {
+  const [trader, setTrader] = useState(null);
+  const [month, setMonth] = useState(null);
+  const [status, setStatus] = useState(null);
+
+  const year = new Date().getFullYear();
+  const rows = (d.lobRows || []).filter(r => r.trader && r.processo);
+
+  const statusColor = (s) => {
+    const sl = (s || "").toLowerCase();
+    if (sl.includes("oper") && sl.includes("finaliz")) return C.green;
+    if (sl.includes("embarcado")) return C.green;
+    if (sl.includes("com booking")) return C.cyan;
+    if (sl.includes("sem booking")) return C.amber;
+    if (sl.includes("aguardando")) return C.blue;
+    if (sl.includes("claim")) return C.red;
+    return C.muted;
+  };
+
+  // Nível 0 — traders (todos os status, ano corrente)
+  const traders = (() => {
+    const map = {};
+    rows.forEach(r => {
+      if (!map[r.trader]) map[r.trader] = { name: r.trader, lob: 0, count: 0 };
+      map[r.trader].lob += r.lob;
+      map[r.trader].count += 1;
+    });
+    return Object.values(map).sort((a, b) => b.lob - a.lob);
+  })();
+
+  const traderRows = trader ? rows.filter(r => r.trader === trader) : [];
+
+  // Nível 1 — meses do trader (12 meses)
+  const months = trader ? Array.from({ length: 12 }, (_, m) => {
+    const mr = traderRows.filter(r => r.etdMonth === m);
+    return { m, name: MONTH_NAMES[m], short: MONTH_SHORT[m], lob: mr.reduce((s, r) => s + r.lob, 0), count: mr.length };
+  }) : [];
+
+  const monthRows = (trader && month !== null) ? traderRows.filter(r => r.etdMonth === month) : [];
+
+  // Nível 2 — status do mês
+  const statuses = (() => {
+    const map = {};
+    monthRows.forEach(r => {
+      const st = r.status || "Sem status";
+      if (!map[st]) map[st] = { name: st, lob: 0, count: 0 };
+      map[st].lob += r.lob;
+      map[st].count += 1;
+    });
+    return Object.values(map).sort((a, b) => b.lob - a.lob);
+  })();
+
+  // Nível 3 — processos do status escolhido
+  const processos = status ? monthRows.filter(r => (r.status || "Sem status") === status) : [];
+  const processosTotal = processos.reduce((s, r) => s + r.lob, 0);
+
+  const level = status ? 3 : month !== null ? 2 : trader ? 1 : 0;
+
+  const goBack = () => {
+    if (status) setStatus(null);
+    else if (month !== null) setMonth(null);
+    else if (trader) setTrader(null);
+    else onExit();
+  };
+
+  const card = (key, onClick, accent, children, disabled) => (
+    <div key={key} onClick={disabled ? undefined : onClick}
+      style={{
+        background: disabled ? `${C.panel}80` : `linear-gradient(135deg, ${C.panel}, ${accent}0d)`,
+        border: `1px solid ${disabled ? C.panelBorder : accent + "40"}`,
+        borderLeft: `4px solid ${disabled ? C.panelBorder : accent}`,
+        borderRadius: 12, padding: "20px 22px", cursor: disabled ? "default" : "pointer",
+        opacity: disabled ? 0.4 : 1, transition: "all 0.15s", fontFamily: FONT,
+      }}
+      onMouseOver={e => { if (!disabled) { e.currentTarget.style.transform = "translateY(-3px)"; e.currentTarget.style.boxShadow = `0 8px 20px ${accent}25`; e.currentTarget.style.borderColor = accent; } }}
+      onMouseOut={e => { if (!disabled) { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.borderColor = accent + "40"; } }}
+    >{children}</div>
+  );
+
+  const crumb = (label, onClick, active) => (
+    <span onClick={onClick} style={{ cursor: onClick ? "pointer" : "default", color: active ? "#fff" : C.muted, fontWeight: active ? 800 : 600, fontFamily: FONT, fontSize: 14 }}>{label}</span>
+  );
+  const sep = <span style={{ color: C.dimText, margin: "0 8px" }}>›</span>;
+
+  return (
+    <div style={{ background: C.bg, minHeight: "100vh", color: C.white, fontFamily: FONT, display: "flex", flexDirection: "column" }}>
+      <style>{`@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.8)}}@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}*{box-sizing:border-box;margin:0;padding:0}::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:${C.bg}}::-webkit-scrollbar-thumb{background:${C.panelBorder};border-radius:4px}`}</style>
+
+      {/* Header */}
+      <div style={{ padding: "12px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${C.panelBorder}`, background: `linear-gradient(180deg, #0d1220, ${C.bg})` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <div style={{ width: 44, height: 44, borderRadius: 6, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", padding: 3 }}>
+            <img src={IB_LOGO} alt="IB" style={{ width: 38, height: 38, borderRadius: 6 }} />
+          </div>
+          <div>
+            <div style={{ fontSize: 20, fontWeight: 900, fontFamily: FONT, color: "#fff" }}>CONSULTA POR TRADER</div>
+            <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, letterSpacing: 1.5, textTransform: "uppercase", fontFamily: FONT }}>Independent Brazil • Trading Desk • {year}</div>
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          {level > 0 && <button onClick={goBack} style={{ background: "none", border: `1px solid ${C.panelBorder}`, borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, color: "#fff", fontFamily: FONT, fontWeight: 700 }}>◀ Voltar</button>}
+          <button onClick={onExit} style={{ background: `linear-gradient(135deg, ${C.red}cc, ${C.red})`, border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, color: "#fff", fontFamily: FONT, fontWeight: 700 }}>✕ Dashboard</button>
+          <Clock />
+        </div>
+      </div>
+
+      {/* Breadcrumb */}
+      <div style={{ padding: "12px 28px", borderBottom: `1px solid ${C.panelBorder}`, display: "flex", alignItems: "center", flexWrap: "wrap" }}>
+        {crumb("Traders", () => { setTrader(null); setMonth(null); setStatus(null); }, level === 0)}
+        {trader && sep}{trader && crumb(trader, () => { setMonth(null); setStatus(null); }, level === 1)}
+        {month !== null && sep}{month !== null && crumb(MONTH_NAMES[month], () => setStatus(null), level === 2)}
+        {status && sep}{status && crumb(status, null, true)}
+      </div>
+
+      {/* Body */}
+      <div key={level + (trader || "") + (month ?? "") + (status || "")} style={{ flex: 1, overflow: "auto", padding: "24px 28px", animation: "fadeIn 0.25s ease" }}>
+
+        {/* NÍVEL 0 — Traders */}
+        {level === 0 && (
+          <>
+            <div style={{ fontSize: 15, color: C.muted, fontFamily: FONT, marginBottom: 18 }}>Selecione um trader para consultar seus processos:</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 16 }}>
+              {traders.map(t => card(t.name, () => setTrader(t.name), C.cyan, (
+                <>
+                  <div style={{ fontSize: 22, fontWeight: 900, color: "#fff", fontFamily: FONT, marginBottom: 10 }}>{t.name}</div>
+                  <div style={{ fontSize: 26, fontWeight: 900, color: C.cyan, fontFamily: FONT }}>{fmtUSD(t.lob)}</div>
+                  <div style={{ fontSize: 12, color: C.muted, fontFamily: FONT, marginTop: 4 }}>{t.count} {t.count === 1 ? "processo" : "processos"} no ano</div>
+                </>
+              )))}
+              {traders.length === 0 && <div style={{ color: C.muted, fontFamily: FONT }}>Sem dados de traders no ano.</div>}
+            </div>
+          </>
+        )}
+
+        {/* NÍVEL 1 — Meses */}
+        {level === 1 && (
+          <>
+            <div style={{ fontSize: 15, color: C.muted, fontFamily: FONT, marginBottom: 18 }}>Selecione o mês (referência: ETD):</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(165px, 1fr))", gap: 14 }}>
+              {months.map(mo => card(mo.m, () => setMonth(mo.m), C.blue, (
+                <>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: "#fff", fontFamily: FONT, marginBottom: 8 }}>{mo.name}</div>
+                  <div style={{ fontSize: 20, fontWeight: 900, color: mo.count ? C.blue : C.dimText, fontFamily: FONT }}>{fmtUSD(mo.lob)}</div>
+                  <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT, marginTop: 4 }}>{mo.count} {mo.count === 1 ? "processo" : "processos"}</div>
+                </>
+              ), mo.count === 0))}
+            </div>
+          </>
+        )}
+
+        {/* NÍVEL 2 — Status */}
+        {level === 2 && (
+          <>
+            <div style={{ fontSize: 15, color: C.muted, fontFamily: FONT, marginBottom: 18 }}>Status dos processos de <b style={{ color: "#fff" }}>{trader}</b> em <b style={{ color: "#fff" }}>{MONTH_NAMES[month]}</b>:</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 14 }}>
+              {statuses.map(st => { const c = statusColor(st.name); return card(st.name, () => setStatus(st.name), c, (
+                <>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: "#fff", fontFamily: FONT, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.4 }}>{st.name}</div>
+                  <div style={{ fontSize: 22, fontWeight: 900, color: c, fontFamily: FONT }}>{fmtUSD(st.lob)}</div>
+                  <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT, marginTop: 4 }}>{st.count} {st.count === 1 ? "processo" : "processos"}</div>
+                </>
+              )); })}
+              {statuses.length === 0 && <div style={{ color: C.muted, fontFamily: FONT }}>Nenhum processo neste mês.</div>}
+            </div>
+          </>
+        )}
+
+        {/* NÍVEL 3 — Processos */}
+        {level === 3 && (() => { const c = statusColor(status); return (
+          <>
+            <div style={{ fontSize: 15, color: C.muted, fontFamily: FONT, marginBottom: 18 }}>
+              <b style={{ color: "#fff" }}>{trader}</b> • <b style={{ color: "#fff" }}>{MONTH_NAMES[month]}</b> • <b style={{ color: c }}>{status}</b>
+            </div>
+            <div style={{ background: C.panel, border: `1px solid ${C.panelBorder}`, borderRadius: 12, overflow: "hidden", maxWidth: 1100 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(120px,1.2fr) 2fr 1.4fr 1.4fr minmax(120px,1fr)", padding: "12px 18px", background: `${c}12`, borderBottom: `1px solid ${C.panelBorder}`, fontSize: 11, fontWeight: 800, color: C.muted, textTransform: "uppercase", letterSpacing: 0.6, fontFamily: FONT }}>
+                <div>Nº Processo</div><div>Cliente</div><div>Produto</div><div>Linha</div><div style={{ textAlign: "right" }}>LOB (USD)</div>
+              </div>
+              {processos.sort((a, b) => b.lob - a.lob).map((r, i) => (
+                <div key={r.processo + i} style={{ display: "grid", gridTemplateColumns: "minmax(120px,1.2fr) 2fr 1.4fr 1.4fr minmax(120px,1fr)", padding: "12px 18px", borderBottom: `1px solid ${C.panelBorder}55`, fontSize: 13, color: "#fff", fontFamily: FONT, alignItems: "center" }}>
+                  <div style={{ fontWeight: 800, color: c }}>{r.processo}</div>
+                  <div style={{ color: C.white, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.cliente || "—"}</div>
+                  <div style={{ color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.produto || "—"}</div>
+                  <div style={{ color: C.muted }}>{r.linha || "—"}</div>
+                  <div style={{ textAlign: "right", fontWeight: 800 }}>{fmtUSD(r.lob)}</div>
+                </div>
+              ))}
+              {processos.length === 0 && <div style={{ padding: 20, color: C.muted, fontFamily: FONT, textAlign: "center" }}>Sem processos.</div>}
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(120px,1.2fr) 2fr 1.4fr 1.4fr minmax(120px,1fr)", padding: "14px 18px", background: `${c}10`, fontSize: 14, fontWeight: 900, color: "#fff", fontFamily: FONT }}>
+                <div style={{ gridColumn: "1 / 5" }}>TOTAL — {processos.length} {processos.length === 1 ? "processo" : "processos"}</div>
+                <div style={{ textAlign: "right", color: c }}>{fmtUSD(processosTotal)}</div>
+              </div>
+            </div>
+          </>
+        ); })()}
+
+      </div>
+
+      <div style={{ padding: "8px 24px", borderTop: `1px solid ${C.panelBorder}`, display: "flex", justifyContent: "space-between", fontSize: 10, color: C.dimText, fontFamily: FONT }}>
+        <span>🔗 Google Sheets • Consulta interativa</span>
+        <span>INDEPENDENT BRAZIL • Trading Desk v4.0 • {year}</span>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [data, setData] = useState(null);
@@ -2665,6 +2875,7 @@ export default function App() {
   const [error, setError] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
   const [tvMode, setTvMode] = useState(false);
+  const [consultaMode, setConsultaMode] = useState(false);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [paused, setPaused] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -2763,6 +2974,7 @@ export default function App() {
 
   if (!data) return null;
   const d = data;
+  if (consultaMode) return <TraderConsulta d={d} onExit={() => setConsultaMode(false)} />;
   const maxTraderLob = d.traderRanking.length > 0 ? Math.max(...d.traderRanking.map(t => config.viewMode === "ano" ? t.lobAno : t.lobMes)) : 1;
 
   // ── TV MODE ──
@@ -2842,6 +3054,7 @@ export default function App() {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <button onClick={() => { setTvMode(true); setCurrentSlide(0); setPaused(false); }} style={{ background: `linear-gradient(135deg, ${C.blue}, ${C.cyan})`, border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, color: "#fff", fontFamily: FONT, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>📺 Modo TV</button>
+          <button onClick={() => setConsultaMode(true)} style={{ background: `linear-gradient(135deg, ${C.green}, #00bfa5)`, border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, color: "#fff", fontFamily: FONT, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>👥 Consulta Traders</button>
           <div style={{ position: "relative" }}>
             <button onClick={() => setReportsOpen(!reportsOpen)} style={{ background: `linear-gradient(135deg, ${C.amber}, #ff9800)`, border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, color: "#fff", fontFamily: FONT, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>📄 Relatórios</button>
             {reportsOpen && (
