@@ -553,6 +553,24 @@ const lobOutros = monthRows.filter(r => !isRealizado(r.status) && !excluirDoGraf
     if (name) traderMetas[name] = { metaMes, metaAno };
   });
 
+  // Meta mensal completa (12 meses) por trader — usada na tela Consulta por Trader
+  const traderMetasMensais = {};
+  metasTrader.forEach(r => {
+    const keys = Object.keys(r);
+    const nameKey = keys.find(k => k.toLowerCase().includes("trader")) || keys[0];
+    const name = (r[nameKey] || "").trim();
+    if (!name) return;
+    const monthly = MONTH_NAMES.map(mn => {
+      const norm = mn.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+      let mk = keys.find(k => k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim() === norm);
+      if (!mk) mk = keys.find(k => k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim().startsWith(norm.substring(0, 3)));
+      return parseMoney(mk ? (r[mk] || "0") : "0");
+    });
+    const totalKey = keys.find(k => k.toLowerCase().trim() === "total") || keys.find(k => k.toLowerCase().includes("total"));
+    const anual = parseMoney(totalKey ? (r[totalKey] || "0") : "0");
+    traderMetasMensais[name] = { monthly, anual };
+  });
+
   const findTraderMeta = (traderName) => {
     if (traderMetas[traderName]) return traderMetas[traderName];
     const norm = traderName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
@@ -813,6 +831,7 @@ const lobOutros = monthRows.filter(r => !isRealizado(r.status) && !excluirDoGraf
   return {
     monthlyLOB: monthlyWithMeta,
     lobRows: yearRows,
+    traderMetasMensais,
     traderRanking,
     linhaRanking,
     lobMesAtual, metaMesAtual,
@@ -2671,6 +2690,21 @@ function TraderConsulta({ d, onExit }) {
   const year = new Date().getFullYear();
   const rows = (d.lobRows || []).filter(r => r.trader && r.processo);
 
+  const isRealiz = (s) => { const sl = (s || "").toLowerCase(); return sl === "embarcado" || sl === "oper. finalizado"; };
+
+  const metaMap = d.traderMetasMensais || {};
+  const metaForTrader = (name) => {
+    if (metaMap[name]) return metaMap[name];
+    const norm = (name || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+    for (const [k, v] of Object.entries(metaMap)) {
+      const nk = k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+      if (nk === norm || nk.includes(norm) || norm.includes(nk)) return v;
+    }
+    return { monthly: Array(12).fill(0), anual: 0 };
+  };
+
+  const pctColor = (pct, hasMeta) => !hasMeta ? C.muted : pct >= 100 ? C.green : pct >= 50 ? C.amber : C.red;
+
   const statusColor = (s) => {
     const sl = (s || "").toLowerCase();
     if (sl.includes("oper") && sl.includes("finaliz")) return C.green;
@@ -2695,11 +2729,26 @@ function TraderConsulta({ d, onExit }) {
 
   const traderRows = trader ? rows.filter(r => r.trader === trader) : [];
 
-  // Nível 1 — meses do trader (12 meses)
+  // Nível 1 — meses do trader (12 meses), com realizado e meta
+  const tMeta = trader ? metaForTrader(trader) : { monthly: Array(12).fill(0), anual: 0 };
   const months = trader ? Array.from({ length: 12 }, (_, m) => {
     const mr = traderRows.filter(r => r.etdMonth === m);
-    return { m, name: MONTH_NAMES[m], short: MONTH_SHORT[m], lob: mr.reduce((s, r) => s + r.lob, 0), count: mr.length };
+    const realizadoRows = mr.filter(r => isRealiz(r.status));
+    return {
+      m, name: MONTH_NAMES[m], short: MONTH_SHORT[m],
+      realizado: realizadoRows.reduce((s, r) => s + r.lob, 0),
+      total: mr.reduce((s, r) => s + r.lob, 0),
+      count: mr.length,
+      meta: tMeta.monthly[m] || 0,
+    };
   }) : [];
+
+  // Totais do ano (somente Embarcado + Oper. finalizado)
+  const anoRealizadoRows = traderRows.filter(r => isRealiz(r.status));
+  const anoRealizado = anoRealizadoRows.reduce((s, r) => s + r.lob, 0);
+  const anoRealizadoCount = anoRealizadoRows.length;
+  const anoMeta = tMeta.anual || 0;
+  const anoPct = anoMeta > 0 ? (anoRealizado / anoMeta * 100) : 0;
 
   const monthRows = (trader && month !== null) ? traderRows.filter(r => r.etdMonth === month) : [];
 
@@ -2800,15 +2849,48 @@ function TraderConsulta({ d, onExit }) {
         {/* NÍVEL 1 — Meses */}
         {level === 1 && (
           <>
-            <div style={{ fontSize: 15, color: C.muted, fontFamily: FONT, marginBottom: 18 }}>Selecione o mês (referência: ETD):</div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(165px, 1fr))", gap: 14 }}>
-              {months.map(mo => card(mo.m, () => setMonth(mo.m), C.blue, (
-                <>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: "#fff", fontFamily: FONT, marginBottom: 8 }}>{mo.name}</div>
-                  <div style={{ fontSize: 20, fontWeight: 900, color: mo.count ? C.blue : C.dimText, fontFamily: FONT }}>{fmtUSD(mo.lob)}</div>
-                  <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT, marginTop: 4 }}>{mo.count} {mo.count === 1 ? "processo" : "processos"}</div>
-                </>
-              ), mo.count === 0))}
+            {/* Scorecard do ano (Embarcado + Oper. finalizado) */}
+            <div style={{ display: "flex", gap: 14, marginBottom: 22, flexWrap: "wrap" }}>
+              <div style={{ flex: 2, minWidth: 250, background: `linear-gradient(135deg, ${C.panel}, ${C.green}0d)`, border: `1px solid ${C.green}40`, borderLeft: `4px solid ${C.green}`, borderRadius: 12, padding: "16px 22px" }}>
+                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.8, color: C.muted, textTransform: "uppercase", fontFamily: FONT, marginBottom: 6 }}>Realizado no ano · Embarcado + Oper. finalizado</div>
+                <div style={{ fontSize: 30, fontWeight: 900, color: C.green, fontFamily: FONT }}>{fmtUSD(anoRealizado)}</div>
+                <div style={{ fontSize: 12, color: C.muted, fontFamily: FONT, marginTop: 2 }}>{anoRealizadoCount} {anoRealizadoCount === 1 ? "processo realizado" : "processos realizados"}</div>
+              </div>
+              <div style={{ flex: 1, minWidth: 180, background: `linear-gradient(135deg, ${C.panel}, ${C.cyan}0d)`, border: `1px solid ${C.cyan}40`, borderLeft: `4px solid ${C.cyan}`, borderRadius: 12, padding: "16px 22px" }}>
+                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.8, color: C.muted, textTransform: "uppercase", fontFamily: FONT, marginBottom: 6 }}>Meta anual</div>
+                <div style={{ fontSize: 30, fontWeight: 900, color: "#fff", fontFamily: FONT }}>{anoMeta > 0 ? fmtUSD(anoMeta) : "—"}</div>
+                <div style={{ fontSize: 12, color: anoMeta > 0 && anoRealizado < anoMeta ? C.amber : C.green, fontFamily: FONT, marginTop: 2 }}>{anoMeta > 0 ? (anoRealizado >= anoMeta ? `+${fmtUSD(anoRealizado - anoMeta)}` : `Faltam ${fmtUSD(anoMeta - anoRealizado)}`) : "Sem meta cadastrada"}</div>
+              </div>
+              <div style={{ flex: 1, minWidth: 150, background: `linear-gradient(135deg, ${C.panel}, ${pctColor(anoPct, anoMeta > 0)}0d)`, border: `1px solid ${pctColor(anoPct, anoMeta > 0)}40`, borderLeft: `4px solid ${pctColor(anoPct, anoMeta > 0)}`, borderRadius: 12, padding: "16px 22px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.8, color: C.muted, textTransform: "uppercase", fontFamily: FONT, marginBottom: 6 }}>Atingimento anual</div>
+                <div style={{ fontSize: 34, fontWeight: 900, color: pctColor(anoPct, anoMeta > 0), fontFamily: FONT }}>{anoMeta > 0 ? `${anoPct.toFixed(0)}%` : "—"}</div>
+              </div>
+            </div>
+
+            <div style={{ fontSize: 15, color: C.muted, fontFamily: FONT, marginBottom: 18 }}>Selecione o mês — performado (Embarcado + Oper. finalizado) vs meta · referência ETD:</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 14 }}>
+              {months.map(mo => {
+                const hasMeta = mo.meta > 0;
+                const pct = hasMeta ? (mo.realizado / mo.meta * 100) : 0;
+                const pc = pctColor(pct, hasMeta);
+                const pipeline = mo.total - mo.realizado;
+                return card(mo.m, () => setMonth(mo.m), C.blue, (
+                  <>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: "#fff", fontFamily: FONT, marginBottom: 8 }}>{mo.name}</div>
+                    <div style={{ fontSize: 22, fontWeight: 900, color: mo.count ? "#fff" : C.dimText, fontFamily: FONT }}>{fmtUSD(mo.realizado)}</div>
+                    <div style={{ fontSize: 12, color: C.muted, fontFamily: FONT, margin: "3px 0 7px" }}>Meta: {hasMeta ? fmtUSD(mo.meta) : "—"}</div>
+                    {hasMeta && (
+                      <>
+                        <div style={{ height: 6, background: C.panelBorder, borderRadius: 3, overflow: "hidden", marginBottom: 5 }}>
+                          <div style={{ width: `${Math.min(pct, 100)}%`, height: "100%", background: pc, borderRadius: 3 }} />
+                        </div>
+                        <div style={{ fontSize: 12, fontWeight: 800, color: pc, fontFamily: FONT }}>{pct.toFixed(0)}% da meta</div>
+                      </>
+                    )}
+                    <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT, marginTop: 5 }}>{mo.count} {mo.count === 1 ? "processo" : "processos"}{pipeline > 0 ? ` · pipeline ${fmtUSD(pipeline)}` : ""}</div>
+                  </>
+                ), mo.count === 0);
+              })}
             </div>
           </>
         )}
