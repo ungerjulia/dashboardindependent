@@ -2688,6 +2688,7 @@ function TraderConsulta({ d, onExit }) {
   const [status, setStatus] = useState(null);
 
   const year = new Date().getFullYear();
+  const currentMonthIdx = new Date().getMonth();
   const rows = (d.lobRows || []).filter(r => r.trader && r.processo);
 
   const isRealiz = (s) => { const sl = (s || "").toLowerCase(); return sl === "embarcado" || sl === "oper. finalizado"; };
@@ -2867,17 +2868,22 @@ function TraderConsulta({ d, onExit }) {
               </div>
             </div>
 
-            <div style={{ fontSize: 15, color: C.muted, fontFamily: FONT, marginBottom: 18 }}>Selecione o mês — performado (Embarcado + Oper. finalizado) vs meta · referência ETD:</div>
+            <div style={{ fontSize: 15, color: C.muted, fontFamily: FONT, marginBottom: 18 }}>Selecione o mês · meses fechados: realizado (Embarcado + Oper. finalizado) · mês atual e futuros: todos os status · vs meta (ref. ETD):</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 14 }}>
               {months.map(mo => {
+                const aberto = mo.m >= currentMonthIdx;          // mês atual e futuros
+                const valor = aberto ? mo.total : mo.realizado;  // aberto = todos os status; fechado = só realizado
                 const hasMeta = mo.meta > 0;
-                const pct = hasMeta ? (mo.realizado / mo.meta * 100) : 0;
+                const pct = hasMeta ? (valor / mo.meta * 100) : 0;
                 const pc = pctColor(pct, hasMeta);
-                const pipeline = mo.total - mo.realizado;
-                return card(mo.m, () => setMonth(mo.m), C.blue, (
+                const jaRealizado = aberto ? mo.realizado : 0;
+                return card(mo.m, () => setMonth(mo.m), aberto ? C.cyan : C.blue, (
                   <>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: "#fff", fontFamily: FONT, marginBottom: 8 }}>{mo.name}</div>
-                    <div style={{ fontSize: 22, fontWeight: 900, color: mo.count ? "#fff" : C.dimText, fontFamily: FONT }}>{fmtUSD(mo.realizado)}</div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <div style={{ fontSize: 18, fontWeight: 800, color: "#fff", fontFamily: FONT }}>{mo.name}</div>
+                      <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: 0.5, padding: "2px 7px", borderRadius: 10, fontFamily: FONT, textTransform: "uppercase", color: aberto ? C.cyan : C.muted, background: aberto ? `${C.cyan}1a` : `${C.muted}1a`, border: `1px solid ${aberto ? C.cyan + "40" : C.muted + "30"}` }}>{aberto ? "Em aberto" : "Fechado"}</span>
+                    </div>
+                    <div style={{ fontSize: 22, fontWeight: 900, color: mo.count ? "#fff" : C.dimText, fontFamily: FONT }}>{fmtUSD(valor)}</div>
                     <div style={{ fontSize: 12, color: C.muted, fontFamily: FONT, margin: "3px 0 7px" }}>Meta: {hasMeta ? fmtUSD(mo.meta) : "—"}</div>
                     {hasMeta && (
                       <>
@@ -2887,7 +2893,7 @@ function TraderConsulta({ d, onExit }) {
                         <div style={{ fontSize: 12, fontWeight: 800, color: pc, fontFamily: FONT }}>{pct.toFixed(0)}% da meta</div>
                       </>
                     )}
-                    <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT, marginTop: 5 }}>{mo.count} {mo.count === 1 ? "processo" : "processos"}{pipeline > 0 ? ` · pipeline ${fmtUSD(pipeline)}` : ""}</div>
+                    <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT, marginTop: 5 }}>{mo.count} {mo.count === 1 ? "processo" : "processos"}{aberto && jaRealizado > 0 ? ` · já realizado ${fmtUSD(jaRealizado)}` : ""}</div>
                   </>
                 ), mo.count === 0);
               })}
