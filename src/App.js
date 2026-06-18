@@ -3064,6 +3064,17 @@ export default function App() {
   const d = data;
   if (consultaMode) return <TraderConsulta d={d} onExit={() => setConsultaMode(false)} />;
   const maxTraderLob = d.traderRanking.length > 0 ? Math.max(...d.traderRanking.map(t => config.viewMode === "ano" ? t.lobAno : t.lobMes)) : 1;
+  // Alerta: processos aguardando assinatura de contrato (podem fechar ou não)
+  const aguardandoData = (() => {
+    const ar = (d.lobRows || []).filter(r => (r.status || "").toLowerCase().includes("aguardando"));
+    const byMonth = {};
+    ar.forEach(r => {
+      const m = r.etdMonth;
+      if (!byMonth[m]) byMonth[m] = { m, count: 0, lob: 0 };
+      byMonth[m].count++; byMonth[m].lob += r.lob;
+    });
+    return { months: Object.values(byMonth).sort((a, b) => a.m - b.m), total: ar.length, totalLob: ar.reduce((s, r) => s + r.lob, 0) };
+  })();
 
   // ── TV MODE ──
   if (tvMode) {
@@ -3201,6 +3212,36 @@ export default function App() {
             <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, color: "#fff", textTransform: "uppercase", fontFamily: FONT, marginBottom: 4 }}>Processos do Mês</div>
             <div style={{ fontSize: 22, fontWeight: 800, color: "#fff", fontFamily: FONT }}>{d.totalOps}</div>
             <div style={{ fontSize: 12, color: C.green, fontWeight: 700, fontFamily: FONT }}>Ano: {d.totalOpsAno} processos</div>
+          </div>
+        </div>
+      )}
+      {/* Alerta — Aguardando Assinatura de Contrato */}
+      {aguardandoData.total > 0 && (
+        <div style={{ margin: "0 20px 10px", background: `linear-gradient(135deg, ${C.amber}16, ${C.panel})`, border: `1px solid ${C.amber}55`, borderLeft: `4px solid ${C.amber}`, borderRadius: 10, padding: "12px 18px", display: "flex", alignItems: "center", gap: 22, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+            <span style={{ fontSize: 22 }}>⚠️</span>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 800, color: C.amber, fontFamily: FONT, textTransform: "uppercase", letterSpacing: 0.5 }}>Aguardando Assinatura de Contrato</div>
+              <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT }}>Podem fechar ou não — acompanhar de perto</div>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 24, alignItems: "center" }}>
+            <div>
+              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.8, color: C.muted, textTransform: "uppercase", fontFamily: FONT }}>Processos</div>
+              <div style={{ fontSize: 22, fontWeight: 900, color: "#fff", fontFamily: FONT }}>{aguardandoData.total}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.8, color: C.muted, textTransform: "uppercase", fontFamily: FONT }}>LOB total</div>
+              <div style={{ fontSize: 22, fontWeight: 900, color: C.amber, fontFamily: FONT }}>{fmtUSD(aguardandoData.totalLob)}</div>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginLeft: "auto" }}>
+            {aguardandoData.months.map(mo => (
+              <div key={mo.m} style={{ background: `${C.amber}12`, border: `1px solid ${C.amber}30`, borderRadius: 8, padding: "6px 11px", fontFamily: FONT, textAlign: "center", minWidth: 64 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: "#fff", fontFamily: FONT }}>{mo.m < 0 ? "Sem ETD" : MONTH_SHORT[mo.m]}</div>
+                <div style={{ fontSize: 11, color: C.amber, fontWeight: 700, fontFamily: FONT }}>{mo.count} · {fmtUSD(mo.lob)}</div>
+              </div>
+            ))}
           </div>
         </div>
       )}
