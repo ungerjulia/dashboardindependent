@@ -461,7 +461,8 @@ function processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financia
     if (lk.includes("responsavel") || lk.includes("operacional")) headerMap.responsavel = k;
     if (lk === "trader") headerMap.trader = k;
     if (lk.includes("linhadenegocio") || (lk.includes("linha") && lk.includes("negocio"))) headerMap.linha = k;
-    if (lk.includes("status")) headerMap.status = k;
+    if (lk.includes("status") && lk.includes("contrato")) headerMap.statusContrato = k;
+    else if (lk.includes("status")) headerMap.status = k;
     if (lk === "cliente") headerMap.cliente = k;
     if (lk === "fornecedor") headerMap.fornecedor = k;
     if (lk === "produto") headerMap.produto = k;
@@ -470,7 +471,7 @@ function processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financia
     if (lk === "lob") headerMap.lob = k;
     if (lk === "tipo") headerMap.tipo = k;
     if (lk === "pais" || lk === "país") headerMap.pais = k;
-    if (lk.includes("contrato") || lk.includes("datacontrato") || lk.includes("contratoassinado")) headerMap.dataContrato = k;
+    if ((lk.includes("contrato") && !lk.includes("status")) || lk.includes("datacontrato") || lk.includes("contratoassinado")) headerMap.dataContrato = k;
   });
 
   const rows = lob.map(r => {
@@ -492,6 +493,13 @@ function processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financia
       tipo: (() => { const t = (r[headerMap.tipo] || "").trim().toLowerCase(); if (t.startsWith("import")) return "IMPO"; if (t.startsWith("export")) return "EXPO"; return t.toUpperCase(); })(),
       pais: (r[headerMap.pais] || "").trim(),
       dataContrato: headerMap.dataContrato ? parseETD(r[headerMap.dataContrato] || "") : null,
+      statusContrato: (() => {
+        const c = (r[headerMap.statusContrato] || "").trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+        if (c.startsWith("sim")) return "Sim";
+        if (c.startsWith("nao")) return "Não";
+        if (c.startsWith("autoriz")) return "Autorizado";
+        return (r[headerMap.statusContrato] || "").trim();
+      })(),
     };
   });
 
@@ -505,16 +513,8 @@ function processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financia
   for (let i = chartStart; i <= chartEnd; i++) {
     const monthRows = yearRows.filter(r => r.etdMonth === i);
     const isRealizado = (s) => s.toLowerCase() === "embarcado" || s.toLowerCase() === "oper. finalizado";
-    const hoje = new Date().getDate();
-    const isMesAtual = i === new Date().getMonth();
-    const excluirDoGrafico = (s) => {
-    if (!isMesAtual) return false;
-    if (hoje <= 10) return false;
-    const sl = s.toLowerCase();
-    return sl.includes("sem booking") || sl.includes("aguardando");
-};
 const lobEmbarcado = monthRows.filter(r => isRealizado(r.status)).reduce((s, r) => s + r.lob, 0);
-const lobOutros = monthRows.filter(r => !isRealizado(r.status) && !excluirDoGrafico(r.status)).reduce((s, r) => s + r.lob, 0);
+const lobOutros = monthRows.filter(r => !isRealizado(r.status)).reduce((s, r) => s + r.lob, 0);
     monthlyLOB.push({ month: MONTH_SHORT[i], monthIndex: i, embarcado: lobEmbarcado, outros: lobOutros, lob: lobEmbarcado + lobOutros });
   }
 
@@ -831,6 +831,41 @@ const lobOutros = monthRows.filter(r => !isRealizado(r.status) && !excluirDoGraf
   return {
     monthlyLOB: monthlyWithMeta,
     lobRows: yearRows,
+    prePgtoRisco: (() => { try {
+      const normP = (p) => String(p || "").trim().replace(/\s+/g, "").toUpperCase();
+      const lobByProc = {};
+      yearRows.forEach(r => { const k = normP(r.processo); if (k) lobByProc[k] = r; });
+      const strip = (k) => k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+      const items = [];
+      (financial || []).forEach(r => {
+        const keys = Object.keys(r);
+        const find = (s) => keys.find(k => strip(k).includes(s));
+        const procKey = find("numeroprocesso") || find("numero") || find("processo") || keys[0];
+        const valorKey = find("valorprepgto") || find("prepgtofornecedor") || keys[13];
+        const vencKey = find("vencimentoprepgto") || find("vencimento") || keys[14];
+        const dataKey = find("dataprepgto") || keys[15];
+        const rawData = (dataKey ? (r[dataKey] || "") : "").toString().trim();
+        if (rawData === "") return;                 // col P vazia = dinheiro não saiu
+        const proc = (procKey ? (r[procKey] || "") : "").toString().trim();
+        const lr = lobByProc[normP(proc)];
+        if (!lr) return;                            // sem correspondência na LOB do ano
+        if (!(lr.status || "").toLowerCase().includes("sem booking")) return; // só Sem Booking
+        const sc = lr.statusContrato || "";
+        let tier;
+        if (sc === "Autorizado") tier = "monitorar";
+        else if (sc === "Sim") tier = "atencao";
+        else tier = "critico";                      // "Não" (padrão inicial) = risco alto
+        items.push({
+          processo: proc, valor: parseMoney(valorKey ? (r[valorKey] || "0") : "0"),
+          dataPgto: rawData, vencimento: vencKey ? (r[vencKey] || "").toString().trim() : "",
+          statusContrato: sc || "—", trader: lr.trader, fornecedor: lr.fornecedor,
+          cliente: lr.cliente, linha: lr.linha, etdMonth: lr.etdMonth, lob: lr.lob, tier,
+        });
+      });
+      const tiers = { critico: { count: 0, valor: 0 }, monitorar: { count: 0, valor: 0 }, atencao: { count: 0, valor: 0 } };
+      items.forEach(it => { tiers[it.tier].count++; tiers[it.tier].valor += it.valor; });
+      return { items, tiers, total: items.length, totalValor: items.reduce((s, it) => s + it.valor, 0) };
+    } catch(e) { console.error("prePgtoRisco error", e); return { items: [], tiers: { critico:{count:0,valor:0}, monitorar:{count:0,valor:0}, atencao:{count:0,valor:0} }, total: 0, totalValor: 0 }; } })(),
     traderMetasMensais,
     traderRanking,
     linhaRanking,
@@ -2956,6 +2991,122 @@ function TraderConsulta({ d, onExit }) {
   );
 }
 
+// ══════════════════════════════════════════════════════════════
+//  RADAR FINANCEIRO — CAIXA EXPOSTO (pré-pgto pago + Sem Booking)
+//  Cruza Financial (pré-pgto realizado) × LOB (Status_Processo/Contrato)
+// ══════════════════════════════════════════════════════════════
+function VisaoFinanceira({ d, onExit }) {
+  const year = new Date().getFullYear();
+  const risco = d.prePgtoRisco || { items: [], tiers: { critico: { count: 0, valor: 0 }, monitorar: { count: 0, valor: 0 }, atencao: { count: 0, valor: 0 } }, total: 0, totalValor: 0 };
+
+  const TIERS = [
+    { key: "critico", color: C.red, icon: "🔴", label: "Crítico", sub: "Pago · Sem Booking · contrato NÃO assinado", hint: "Dinheiro fora sem booking e sem contrato — parar e entender o porquê." },
+    { key: "monitorar", color: "#ff9100", icon: "🟠", label: "Monitorar", sub: "Pago · Sem Booking · contrato Autorizado", hint: "Gestor autorizou seguir; o comercial precisa entregar os contratos o quanto antes." },
+    { key: "atencao", color: "#ffd600", icon: "🟡", label: "Atenção", sub: "Pago · Sem Booking · contrato assinado (Sim)", hint: "Pago e com contrato, mas ainda não embarcou — pode ter travado no caminho." },
+  ];
+
+  const GRID = "minmax(110px,1.1fr) 1.2fr 1.6fr 1fr 1.1fr minmax(110px,1fr)";
+
+  const tierSection = (t) => {
+    const items = risco.items.filter(it => it.tier === t.key).sort((a, b) => b.valor - a.valor);
+    const agg = risco.tiers[t.key];
+    return (
+      <div key={t.key} style={{ marginBottom: 22, background: C.panel, border: `1px solid ${t.color}40`, borderLeft: `4px solid ${t.color}`, borderRadius: 12, overflow: "hidden" }}>
+        <div style={{ padding: "14px 20px", background: `${t.color}12`, borderBottom: `1px solid ${C.panelBorder}`, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 20 }}>{t.icon}</span>
+          <div style={{ flex: 1, minWidth: 240 }}>
+            <div style={{ fontSize: 16, fontWeight: 900, color: "#fff", fontFamily: FONT, textTransform: "uppercase", letterSpacing: 0.5 }}>{t.label}</div>
+            <div style={{ fontSize: 12, color: t.color, fontWeight: 700, fontFamily: FONT }}>{t.sub}</div>
+            <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT, marginTop: 2 }}>{t.hint}</div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 26, fontWeight: 900, color: t.color, fontFamily: FONT }}>{fmtUSD(agg.valor)}</div>
+            <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT }}>{agg.count} {agg.count === 1 ? "processo" : "processos"}</div>
+          </div>
+        </div>
+        {items.length > 0 ? (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: GRID, padding: "10px 20px", fontSize: 10, fontWeight: 800, color: C.muted, textTransform: "uppercase", letterSpacing: 0.6, fontFamily: FONT, borderBottom: `1px solid ${C.panelBorder}` }}>
+              <div>Nº Processo</div><div>Trader</div><div>Fornecedor</div><div>Contrato</div><div>Data pré-pgto</div><div style={{ textAlign: "right" }}>Valor pré-pgto</div>
+            </div>
+            {items.map((it, i) => (
+              <div key={it.processo + i} style={{ display: "grid", gridTemplateColumns: GRID, padding: "11px 20px", fontSize: 13, color: "#fff", fontFamily: FONT, alignItems: "center", borderBottom: `1px solid ${C.panelBorder}55` }}>
+                <div style={{ fontWeight: 800, color: t.color }}>{it.processo}</div>
+                <div style={{ color: C.white, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.trader || "—"}</div>
+                <div style={{ color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.fornecedor || "—"}</div>
+                <div style={{ fontWeight: 700, color: it.statusContrato === "Não" ? C.red : it.statusContrato === "Autorizado" ? "#ff9100" : it.statusContrato === "Sim" ? C.green : C.muted }}>{it.statusContrato}</div>
+                <div style={{ color: C.muted }}>{it.dataPgto || "—"}</div>
+                <div style={{ textAlign: "right", fontWeight: 800 }}>{fmtUSD(it.valor)}</div>
+              </div>
+            ))}
+          </>
+        ) : (
+          <div style={{ padding: "16px 20px", fontSize: 13, color: C.green, fontFamily: FONT }}>✓ Nenhum processo nesta faixa.</div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ background: C.bg, minHeight: "100vh", color: C.white, fontFamily: FONT, display: "flex", flexDirection: "column" }}>
+      <style>{`*{box-sizing:border-box;margin:0;padding:0}::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:${C.bg}}::-webkit-scrollbar-thumb{background:${C.panelBorder};border-radius:4px}`}</style>
+
+      {/* Header */}
+      <div style={{ padding: "12px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${C.panelBorder}`, background: `linear-gradient(180deg, #0d1220, ${C.bg})` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <div style={{ width: 44, height: 44, borderRadius: 6, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", padding: 3 }}>
+            <img src={IB_LOGO} alt="IB" style={{ width: 38, height: 38, borderRadius: 6 }} />
+          </div>
+          <div>
+            <div style={{ fontSize: 20, fontWeight: 900, fontFamily: FONT, color: "#fff" }}>RADAR FINANCEIRO · CAIXA EXPOSTO</div>
+            <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, letterSpacing: 1.5, textTransform: "uppercase", fontFamily: FONT }}>Pré-pgto realizado + Sem Booking • {year}</div>
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <button onClick={onExit} style={{ background: `linear-gradient(135deg, ${C.red}cc, ${C.red})`, border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, color: "#fff", fontFamily: FONT, fontWeight: 700 }}>✕ Dashboard</button>
+          <Clock />
+        </div>
+      </div>
+
+      {/* Body */}
+      <div style={{ flex: 1, overflow: "auto", padding: "24px 28px" }}>
+        {risco.total === 0 ? (
+          <div style={{ background: C.panel, border: `1px solid ${C.green}40`, borderLeft: `4px solid ${C.green}`, borderRadius: 12, padding: "28px 24px", textAlign: "center" }}>
+            <div style={{ fontSize: 30, marginBottom: 8 }}>✓</div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: C.green, fontFamily: FONT }}>Nenhum pré-pgto pago em situação de risco</div>
+            <div style={{ fontSize: 13, color: C.muted, fontFamily: FONT, marginTop: 6 }}>Não há dinheiro que já saiu do caixa em processos Sem Booking.</div>
+          </div>
+        ) : (
+          <>
+            {/* Resumo */}
+            <div style={{ display: "flex", gap: 14, marginBottom: 24, flexWrap: "wrap" }}>
+              <div style={{ flex: 2, minWidth: 260, background: `linear-gradient(135deg, ${C.panel}, ${C.red}12)`, border: `1px solid ${C.red}50`, borderLeft: `4px solid ${C.red}`, borderRadius: 12, padding: "18px 22px" }}>
+                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.8, color: C.muted, textTransform: "uppercase", fontFamily: FONT, marginBottom: 6 }}>Caixa que já saiu · em processos Sem Booking</div>
+                <div style={{ fontSize: 34, fontWeight: 900, color: C.red, fontFamily: FONT }}>{fmtUSD(risco.totalValor)}</div>
+                <div style={{ fontSize: 12, color: C.muted, fontFamily: FONT, marginTop: 2 }}>{risco.total} {risco.total === 1 ? "processo" : "processos"} com pré-pgto realizado</div>
+              </div>
+              {TIERS.map(t => (
+                <div key={t.key} style={{ flex: 1, minWidth: 150, background: `linear-gradient(135deg, ${C.panel}, ${t.color}0d)`, border: `1px solid ${t.color}40`, borderLeft: `4px solid ${t.color}`, borderRadius: 12, padding: "18px 20px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.6, color: C.muted, textTransform: "uppercase", fontFamily: FONT, marginBottom: 6 }}>{t.icon} {t.label}</div>
+                  <div style={{ fontSize: 22, fontWeight: 900, color: t.color, fontFamily: FONT }}>{fmtUSD(risco.tiers[t.key].valor)}</div>
+                  <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT, marginTop: 2 }}>{risco.tiers[t.key].count} {risco.tiers[t.key].count === 1 ? "processo" : "processos"}</div>
+                </div>
+              ))}
+            </div>
+
+            {TIERS.map(tierSection)}
+          </>
+        )}
+      </div>
+
+      <div style={{ padding: "8px 24px", borderTop: `1px solid ${C.panelBorder}`, display: "flex", justifyContent: "space-between", fontSize: 10, color: C.dimText, fontFamily: FONT }}>
+        <span>🔗 Google Sheets • Financial × LOB por Nº processo</span>
+        <span>INDEPENDENT BRAZIL • Trading Desk v4.0 • {year}</span>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [data, setData] = useState(null);
@@ -2964,6 +3115,7 @@ export default function App() {
   const [lastUpdate, setLastUpdate] = useState(null);
   const [tvMode, setTvMode] = useState(false);
   const [consultaMode, setConsultaMode] = useState(false);
+  const [financeiroMode, setFinanceiroMode] = useState(false);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [paused, setPaused] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -3063,17 +3215,18 @@ export default function App() {
   if (!data) return null;
   const d = data;
   if (consultaMode) return <TraderConsulta d={d} onExit={() => setConsultaMode(false)} />;
+  if (financeiroMode) return <VisaoFinanceira d={d} onExit={() => setFinanceiroMode(false)} />;
   const maxTraderLob = d.traderRanking.length > 0 ? Math.max(...d.traderRanking.map(t => config.viewMode === "ano" ? t.lobAno : t.lobMes)) : 1;
-  // Alerta: processos aguardando assinatura de contrato (podem fechar ou não)
-  const aguardandoData = (() => {
-    const ar = (d.lobRows || []).filter(r => (r.status || "").toLowerCase().includes("aguardando"));
+  // Destaque de risco de contrato: Sem Booking + Status_Contrato "Não"
+  const riscoContrato = (() => {
+    const rc = (d.lobRows || []).filter(r => (r.status || "").toLowerCase().includes("sem booking") && r.statusContrato === "Não");
     const byMonth = {};
-    ar.forEach(r => {
+    rc.forEach(r => {
       const m = r.etdMonth;
       if (!byMonth[m]) byMonth[m] = { m, count: 0, lob: 0 };
       byMonth[m].count++; byMonth[m].lob += r.lob;
     });
-    return { months: Object.values(byMonth).sort((a, b) => a.m - b.m), total: ar.length, totalLob: ar.reduce((s, r) => s + r.lob, 0) };
+    return { months: Object.values(byMonth).sort((a, b) => a.m - b.m), total: rc.length, totalLob: rc.reduce((s, r) => s + r.lob, 0) };
   })();
 
   // ── TV MODE ──
@@ -3154,6 +3307,7 @@ export default function App() {
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <button onClick={() => { setTvMode(true); setCurrentSlide(0); setPaused(false); }} style={{ background: `linear-gradient(135deg, ${C.blue}, ${C.cyan})`, border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, color: "#fff", fontFamily: FONT, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>📺 Modo TV</button>
           <button onClick={() => setConsultaMode(true)} style={{ background: `linear-gradient(135deg, ${C.green}, #00bfa5)`, border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, color: "#fff", fontFamily: FONT, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>👥 Consulta Traders</button>
+          <button onClick={() => setFinanceiroMode(true)} style={{ background: `linear-gradient(135deg, ${C.red}, #ff6d00)`, border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, color: "#fff", fontFamily: FONT, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>💰 Financeiro</button>
           <div style={{ position: "relative" }}>
             <button onClick={() => setReportsOpen(!reportsOpen)} style={{ background: `linear-gradient(135deg, ${C.amber}, #ff9800)`, border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, color: "#fff", fontFamily: FONT, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>📄 Relatórios</button>
             {reportsOpen && (
@@ -3215,31 +3369,31 @@ export default function App() {
           </div>
         </div>
       )}
-      {/* Alerta — Aguardando Assinatura de Contrato */}
-      {aguardandoData.total > 0 && (
-        <div style={{ margin: "0 20px 10px", background: `linear-gradient(135deg, ${C.amber}16, ${C.panel})`, border: `1px solid ${C.amber}55`, borderLeft: `4px solid ${C.amber}`, borderRadius: 10, padding: "12px 18px", display: "flex", alignItems: "center", gap: 22, flexWrap: "wrap" }}>
+      {/* Destaque — Risco de contrato: Sem Booking + contrato Não assinado */}
+      {riscoContrato.total > 0 && (
+        <div style={{ margin: "0 20px 10px", background: `linear-gradient(135deg, ${C.red}18, ${C.panel})`, border: `1px solid ${C.red}55`, borderLeft: `4px solid ${C.red}`, borderRadius: 10, padding: "12px 18px", display: "flex", alignItems: "center", gap: 22, flexWrap: "wrap" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-            <span style={{ fontSize: 22 }}>⚠️</span>
+            <span style={{ fontSize: 22 }}>🚩</span>
             <div>
-              <div style={{ fontSize: 13, fontWeight: 800, color: C.amber, fontFamily: FONT, textTransform: "uppercase", letterSpacing: 0.5 }}>Aguardando Assinatura de Contrato</div>
-              <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT }}>Podem fechar ou não — acompanhar de perto</div>
+              <div style={{ fontSize: 13, fontWeight: 800, color: C.red, fontFamily: FONT, textTransform: "uppercase", letterSpacing: 0.5 }}>Sem Booking + Contrato não assinado</div>
+              <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT }}>Negócio sem booking e sem contrato — prioridade de acompanhamento</div>
             </div>
           </div>
           <div style={{ display: "flex", gap: 24, alignItems: "center" }}>
             <div>
               <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.8, color: C.muted, textTransform: "uppercase", fontFamily: FONT }}>Processos</div>
-              <div style={{ fontSize: 22, fontWeight: 900, color: "#fff", fontFamily: FONT }}>{aguardandoData.total}</div>
+              <div style={{ fontSize: 22, fontWeight: 900, color: "#fff", fontFamily: FONT }}>{riscoContrato.total}</div>
             </div>
             <div>
               <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.8, color: C.muted, textTransform: "uppercase", fontFamily: FONT }}>LOB total</div>
-              <div style={{ fontSize: 22, fontWeight: 900, color: C.amber, fontFamily: FONT }}>{fmtUSD(aguardandoData.totalLob)}</div>
+              <div style={{ fontSize: 22, fontWeight: 900, color: C.red, fontFamily: FONT }}>{fmtUSD(riscoContrato.totalLob)}</div>
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginLeft: "auto" }}>
-            {aguardandoData.months.map(mo => (
-              <div key={mo.m} style={{ background: `${C.amber}12`, border: `1px solid ${C.amber}30`, borderRadius: 8, padding: "6px 11px", fontFamily: FONT, textAlign: "center", minWidth: 64 }}>
+            {riscoContrato.months.map(mo => (
+              <div key={mo.m} style={{ background: `${C.red}12`, border: `1px solid ${C.red}30`, borderRadius: 8, padding: "6px 11px", fontFamily: FONT, textAlign: "center", minWidth: 64 }}>
                 <div style={{ fontSize: 11, fontWeight: 800, color: "#fff", fontFamily: FONT }}>{mo.m < 0 ? "Sem ETD" : MONTH_SHORT[mo.m]}</div>
-                <div style={{ fontSize: 11, color: C.amber, fontWeight: 700, fontFamily: FONT }}>{mo.count} · {fmtUSD(mo.lob)}</div>
+                <div style={{ fontSize: 11, color: C.red, fontWeight: 700, fontFamily: FONT }}>{mo.count} · {fmtUSD(mo.lob)}</div>
               </div>
             ))}
           </div>
