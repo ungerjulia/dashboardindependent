@@ -866,6 +866,21 @@ const lobOutros = monthRows.filter(r => !isRealizado(r.status)).reduce((s, r) =>
       items.forEach(it => { tiers[it.tier].count++; tiers[it.tier].valor += it.valor; });
       return { items, tiers, total: items.length, totalValor: items.reduce((s, it) => s + it.valor, 0) };
     } catch(e) { console.error("prePgtoRisco error", e); return { items: [], tiers: { critico:{count:0,valor:0}, monitorar:{count:0,valor:0}, atencao:{count:0,valor:0} }, total: 0, totalValor: 0 }; } })(),
+    prePgtoByProc: (() => { try {
+      const strip = (k) => k.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+      const normP = (p) => String(p || "").trim().replace(/\s+/g, "").toUpperCase();
+      const map = {};
+      (financial || []).forEach(r => {
+        const keys = Object.keys(r);
+        const find = (s) => keys.find(k => strip(k).includes(s));
+        const procKey = find("numeroprocesso") || find("numero") || find("processo") || keys[0];
+        const dataKey = find("dataprepgto") || keys[15];
+        const proc = normP(procKey ? (r[procKey] || "") : "");
+        if (!proc) return;
+        map[proc] = (dataKey ? (r[dataKey] || "") : "").toString().trim();
+      });
+      return map;
+    } catch(e) { return {}; } })(),
     traderMetasMensais,
     traderRanking,
     linhaRanking,
@@ -2954,27 +2969,48 @@ function TraderConsulta({ d, onExit }) {
         )}
 
         {/* NÍVEL 3 — Processos */}
-        {level === 3 && (() => { const c = statusColor(status); return (
+        {level === 3 && (() => {
+          const c = statusColor(status);
+          const abertoLvl3 = month >= currentMonthIdx;   // mês atual e futuros
+          const normP = (p) => String(p || "").trim().replace(/\s+/g, "").toUpperCase();
+          const preMap = d.prePgtoByProc || {};
+          const fmtDate = (dt) => { if (!dt || isNaN(dt)) return "—"; const dd = String(dt.getDate()).padStart(2, "0"); const mm = String(dt.getMonth() + 1).padStart(2, "0"); return `${dd}/${mm}/${dt.getFullYear()}`; };
+          const preInfo = (proc) => { const v = preMap[normP(proc)]; return (v && v.toString().trim() !== "") ? v.toString().trim() : "sem pgto"; };
+          const GRIDc = abertoLvl3
+            ? "minmax(100px,1fr) 1.2fr 1.5fr 1.2fr 1fr 0.95fr 1fr minmax(90px,0.9fr)"
+            : "minmax(120px,1.2fr) 2fr 1.4fr 1.4fr minmax(120px,1fr)";
+          const minW = abertoLvl3 ? 1050 : "auto";
+          const sorted = processos.slice().sort((a, b) => b.lob - a.lob);
+          return (
           <>
             <div style={{ fontSize: 15, color: C.muted, fontFamily: FONT, marginBottom: 18 }}>
               <b style={{ color: "#fff" }}>{trader}</b> • <b style={{ color: "#fff" }}>{MONTH_NAMES[month]}</b> • <b style={{ color: c }}>{status}</b>
+              {abertoLvl3 && <span style={{ fontSize: 12, color: C.cyan, marginLeft: 8 }}>· mês em aberto · detalhes operacionais</span>}
             </div>
-            <div style={{ background: C.panel, border: `1px solid ${C.panelBorder}`, borderRadius: 12, overflow: "hidden", maxWidth: 1100 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "minmax(120px,1.2fr) 2fr 1.4fr 1.4fr minmax(120px,1fr)", padding: "12px 18px", background: `${c}12`, borderBottom: `1px solid ${C.panelBorder}`, fontSize: 11, fontWeight: 800, color: C.muted, textTransform: "uppercase", letterSpacing: 0.6, fontFamily: FONT }}>
-                <div>Nº Processo</div><div>Cliente</div><div>Produto</div><div>Linha</div><div style={{ textAlign: "right" }}>LOB (USD)</div>
+            <div style={{ background: C.panel, border: `1px solid ${C.panelBorder}`, borderRadius: 12, overflow: "auto", maxWidth: abertoLvl3 ? 1500 : 1100 }}>
+              <div style={{ display: "grid", gridTemplateColumns: GRIDc, minWidth: minW, padding: "12px 18px", background: `${c}12`, borderBottom: `1px solid ${C.panelBorder}`, fontSize: 11, fontWeight: 800, color: C.muted, textTransform: "uppercase", letterSpacing: 0.6, fontFamily: FONT }}>
+                <div>Nº Processo</div>
+                {abertoLvl3 && <div>Responsável</div>}
+                <div>Cliente</div><div>Produto</div><div>Linha</div>
+                {abertoLvl3 && <div>ETD</div>}
+                {abertoLvl3 && <div>Pré-pgto</div>}
+                <div style={{ textAlign: "right" }}>LOB (USD)</div>
               </div>
-              {processos.sort((a, b) => b.lob - a.lob).map((r, i) => (
-                <div key={r.processo + i} style={{ display: "grid", gridTemplateColumns: "minmax(120px,1.2fr) 2fr 1.4fr 1.4fr minmax(120px,1fr)", padding: "12px 18px", borderBottom: `1px solid ${C.panelBorder}55`, fontSize: 13, color: "#fff", fontFamily: FONT, alignItems: "center" }}>
+              {sorted.map((r, i) => { const pre = abertoLvl3 ? preInfo(r.processo) : null; return (
+                <div key={r.processo + i} style={{ display: "grid", gridTemplateColumns: GRIDc, minWidth: minW, padding: "12px 18px", borderBottom: `1px solid ${C.panelBorder}55`, fontSize: 13, color: "#fff", fontFamily: FONT, alignItems: "center" }}>
                   <div style={{ fontWeight: 800, color: c }}>{r.processo}</div>
+                  {abertoLvl3 && <div style={{ color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.responsavel || "—"}</div>}
                   <div style={{ color: C.white, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.cliente || "—"}</div>
                   <div style={{ color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.produto || "—"}</div>
-                  <div style={{ color: C.muted }}>{r.linha || "—"}</div>
+                  <div style={{ color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.linha || "—"}</div>
+                  {abertoLvl3 && <div style={{ color: C.muted }}>{fmtDate(r.etd)}</div>}
+                  {abertoLvl3 && <div style={{ fontWeight: 700, color: pre === "sem pgto" ? C.muted : C.green }}>{pre}</div>}
                   <div style={{ textAlign: "right", fontWeight: 800 }}>{fmtUSD(r.lob)}</div>
                 </div>
-              ))}
+              ); })}
               {processos.length === 0 && <div style={{ padding: 20, color: C.muted, fontFamily: FONT, textAlign: "center" }}>Sem processos.</div>}
-              <div style={{ display: "grid", gridTemplateColumns: "minmax(120px,1.2fr) 2fr 1.4fr 1.4fr minmax(120px,1fr)", padding: "14px 18px", background: `${c}10`, fontSize: 14, fontWeight: 900, color: "#fff", fontFamily: FONT }}>
-                <div style={{ gridColumn: "1 / 5" }}>TOTAL — {processos.length} {processos.length === 1 ? "processo" : "processos"}</div>
+              <div style={{ display: "grid", gridTemplateColumns: GRIDc, minWidth: minW, padding: "14px 18px", background: `${c}10`, fontSize: 14, fontWeight: 900, color: "#fff", fontFamily: FONT }}>
+                <div style={{ gridColumn: abertoLvl3 ? "1 / 8" : "1 / 5" }}>TOTAL — {processos.length} {processos.length === 1 ? "processo" : "processos"}</div>
                 <div style={{ textAlign: "right", color: c }}>{fmtUSD(processosTotal)}</div>
               </div>
             </div>
