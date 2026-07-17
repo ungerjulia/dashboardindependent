@@ -461,8 +461,8 @@ function processData(lob, metasTrader, metaLinha, metaGlobal, operacao, financia
     if (lk.includes("responsavel") || lk.includes("operacional")) headerMap.responsavel = k;
     if (lk === "trader") headerMap.trader = k;
     if (lk.includes("linhadenegocio") || (lk.includes("linha") && lk.includes("negocio"))) headerMap.linha = k;
-    if (lk.includes("status") && lk.includes("contrato")) headerMap.statusContrato = k;
-    else if (lk.includes("status")) headerMap.status = k;
+    if (!headerMap.status && (lk.includes("statusprocesso") || (lk.includes("status") && !lk.includes("contrato")))) headerMap.status = k;
+    if (!headerMap.statusContrato && (lk.includes("status") || lk.includes("satus")) && lk.includes("contrato")) headerMap.statusContrato = k;
     if (lk === "cliente") headerMap.cliente = k;
     if (lk === "fornecedor") headerMap.fornecedor = k;
     if (lk === "produto") headerMap.produto = k;
@@ -3107,6 +3107,151 @@ function VisaoFinanceira({ d, onExit }) {
   );
 }
 
+// ══════════════════════════════════════════════════════════════
+//  RADAR DE CONTRATOS — processos com Status_Contrato = "Não"
+//  Cruza com Status_Processo em severidade crescente
+// ══════════════════════════════════════════════════════════════
+function RadarContratos({ d, onExit }) {
+  const [mes, setMes] = useState(null); // null = todos
+  const year = new Date().getFullYear();
+
+  const base = (d.lobRows || []).filter(r => r.statusContrato === "Não");
+  const rows = mes === null ? base : base.filter(r => r.etdMonth === mes);
+
+  const classify = (s) => {
+    const sl = (s || "").toLowerCase();
+    if (sl === "embarcado" || sl === "oper. finalizado") return "gravissimo";
+    if (sl.includes("com booking")) return "erro";
+    if (sl.includes("sem booking")) return "atencao";
+    return "atencao";
+  };
+
+  const TIERS = [
+    { key: "gravissimo", color: "#d50000", icon: "🚨", label: "Gravíssimo", sub: "Embarcado / Finalizado SEM contrato", hint: "Mercadoria já embarcou sem contrato assinado — nem deveria ter acontecido." },
+    { key: "erro", color: "#ff6d00", icon: "⛔", label: "Erro", sub: "Com Booking SEM contrato", hint: "Booking feito sem contrato assinado — resolver antes de embarcar." },
+    { key: "atencao", color: C.amber, icon: "⚠️", label: "Atenção", sub: "Sem Booking SEM contrato", hint: "Ainda sem booking e sem contrato — acompanhar de perto." },
+  ];
+
+  const withTier = rows.map(r => ({ ...r, tier: classify(r.status) }));
+  const agg = (k) => { const its = withTier.filter(r => r.tier === k); return { count: its.length, lob: its.reduce((s, r) => s + r.lob, 0), items: its }; };
+  const total = withTier.length;
+  const totalLob = withTier.reduce((s, r) => s + r.lob, 0);
+
+  const mesesComDados = [...new Set(base.map(r => r.etdMonth))].filter(m => m >= 0).sort((a, b) => a - b);
+
+  const GRID = "minmax(110px,1.1fr) 1.2fr 1.6fr 1.4fr 0.8fr minmax(100px,1fr)";
+
+  const tierSection = (t) => {
+    const a = agg(t.key);
+    const items = a.items.sort((x, y) => y.lob - x.lob);
+    return (
+      <div key={t.key} style={{ marginBottom: 22, background: C.panel, border: `1px solid ${t.color}40`, borderLeft: `4px solid ${t.color}`, borderRadius: 12, overflow: "hidden" }}>
+        <div style={{ padding: "14px 20px", background: `${t.color}12`, borderBottom: `1px solid ${C.panelBorder}`, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 20 }}>{t.icon}</span>
+          <div style={{ flex: 1, minWidth: 240 }}>
+            <div style={{ fontSize: 16, fontWeight: 900, color: "#fff", fontFamily: FONT, textTransform: "uppercase", letterSpacing: 0.5 }}>{t.label}</div>
+            <div style={{ fontSize: 12, color: t.color, fontWeight: 700, fontFamily: FONT }}>{t.sub}</div>
+            <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT, marginTop: 2 }}>{t.hint}</div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 26, fontWeight: 900, color: t.color, fontFamily: FONT }}>{fmtUSD(a.lob)}</div>
+            <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT }}>{a.count} {a.count === 1 ? "processo" : "processos"}</div>
+          </div>
+        </div>
+        {items.length > 0 ? (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: GRID, padding: "10px 20px", fontSize: 10, fontWeight: 800, color: C.muted, textTransform: "uppercase", letterSpacing: 0.6, fontFamily: FONT, borderBottom: `1px solid ${C.panelBorder}` }}>
+              <div>Nº Processo</div><div>Trader</div><div>Cliente</div><div>Produto</div><div>Mês</div><div style={{ textAlign: "right" }}>LOB</div>
+            </div>
+            {items.map((it, i) => (
+              <div key={it.processo + i} style={{ display: "grid", gridTemplateColumns: GRID, padding: "11px 20px", fontSize: 13, color: "#fff", fontFamily: FONT, alignItems: "center", borderBottom: `1px solid ${C.panelBorder}55` }}>
+                <div style={{ fontWeight: 800, color: t.color }}>{it.processo}</div>
+                <div style={{ color: C.white, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.trader || "—"}</div>
+                <div style={{ color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.cliente || "—"}</div>
+                <div style={{ color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.produto || "—"}</div>
+                <div style={{ color: C.muted }}>{it.etdMonth >= 0 ? MONTH_SHORT[it.etdMonth] : "—"}</div>
+                <div style={{ textAlign: "right", fontWeight: 800 }}>{fmtUSD(it.lob)}</div>
+              </div>
+            ))}
+          </>
+        ) : (
+          <div style={{ padding: "16px 20px", fontSize: 13, color: C.green, fontFamily: FONT }}>✓ Nenhum processo nesta faixa{mes !== null ? " neste mês" : ""}.</div>
+        )}
+      </div>
+    );
+  };
+
+  const chip = (label, active, onClick) => (
+    <div onClick={onClick} style={{ cursor: "pointer", padding: "7px 14px", borderRadius: 8, fontSize: 13, fontWeight: 700, fontFamily: FONT, color: active ? "#fff" : C.muted, background: active ? `${C.red}22` : C.panel, border: `1px solid ${active ? C.red + "60" : C.panelBorder}` }}>{label}</div>
+  );
+
+  return (
+    <div style={{ background: C.bg, minHeight: "100vh", color: C.white, fontFamily: FONT, display: "flex", flexDirection: "column" }}>
+      <style>{`*{box-sizing:border-box;margin:0;padding:0}::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:${C.bg}}::-webkit-scrollbar-thumb{background:${C.panelBorder};border-radius:4px}`}</style>
+
+      {/* Header */}
+      <div style={{ padding: "12px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${C.panelBorder}`, background: `linear-gradient(180deg, #0d1220, ${C.bg})` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <div style={{ width: 44, height: 44, borderRadius: 6, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", padding: 3 }}>
+            <img src={IB_LOGO} alt="IB" style={{ width: 38, height: 38, borderRadius: 6 }} />
+          </div>
+          <div>
+            <div style={{ fontSize: 20, fontWeight: 900, fontFamily: FONT, color: "#fff" }}>RADAR DE CONTRATOS · NÃO ASSINADOS</div>
+            <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, letterSpacing: 1.5, textTransform: "uppercase", fontFamily: FONT }}>Status_Contrato = Não × Status do processo • {year}</div>
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <button onClick={onExit} style={{ background: `linear-gradient(135deg, ${C.red}cc, ${C.red})`, border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, color: "#fff", fontFamily: FONT, fontWeight: 700 }}>✕ Dashboard</button>
+          <Clock />
+        </div>
+      </div>
+
+      {/* Filtro de mês */}
+      <div style={{ padding: "12px 28px", borderBottom: `1px solid ${C.panelBorder}`, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <span style={{ fontSize: 12, color: C.muted, fontFamily: FONT, marginRight: 4 }}>Mês (ETD):</span>
+        {chip("Todos", mes === null, () => setMes(null))}
+        {mesesComDados.map(m => chip(MONTH_SHORT[m], mes === m, () => setMes(m)))}
+      </div>
+
+      {/* Body */}
+      <div style={{ flex: 1, overflow: "auto", padding: "24px 28px" }}>
+        {total === 0 ? (
+          <div style={{ background: C.panel, border: `1px solid ${C.green}40`, borderLeft: `4px solid ${C.green}`, borderRadius: 12, padding: "28px 24px", textAlign: "center" }}>
+            <div style={{ fontSize: 30, marginBottom: 8 }}>✓</div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: C.green, fontFamily: FONT }}>Nenhum processo com contrato "Não"{mes !== null ? " neste mês" : ""}</div>
+            <div style={{ fontSize: 13, color: C.muted, fontFamily: FONT, marginTop: 6 }}>Todos os processos têm contrato assinado ou autorizado.</div>
+          </div>
+        ) : (
+          <>
+            {/* Resumo */}
+            <div style={{ display: "flex", gap: 14, marginBottom: 24, flexWrap: "wrap" }}>
+              <div style={{ flex: 2, minWidth: 260, background: `linear-gradient(135deg, ${C.panel}, ${C.red}12)`, border: `1px solid ${C.red}50`, borderLeft: `4px solid ${C.red}`, borderRadius: 12, padding: "18px 22px" }}>
+                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.8, color: C.muted, textTransform: "uppercase", fontFamily: FONT, marginBottom: 6 }}>Total sem contrato assinado {mes !== null ? `· ${MONTH_NAMES[mes]}` : "· ano"}</div>
+                <div style={{ fontSize: 34, fontWeight: 900, color: C.red, fontFamily: FONT }}>{fmtUSD(totalLob)}</div>
+                <div style={{ fontSize: 12, color: C.muted, fontFamily: FONT, marginTop: 2 }}>{total} {total === 1 ? "processo" : "processos"} com Status_Contrato = Não</div>
+              </div>
+              {TIERS.map(t => { const a = agg(t.key); return (
+                <div key={t.key} style={{ flex: 1, minWidth: 150, background: `linear-gradient(135deg, ${C.panel}, ${t.color}0d)`, border: `1px solid ${t.color}40`, borderLeft: `4px solid ${t.color}`, borderRadius: 12, padding: "18px 20px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.6, color: C.muted, textTransform: "uppercase", fontFamily: FONT, marginBottom: 6 }}>{t.icon} {t.label}</div>
+                  <div style={{ fontSize: 22, fontWeight: 900, color: t.color, fontFamily: FONT }}>{fmtUSD(a.lob)}</div>
+                  <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT, marginTop: 2 }}>{a.count} {a.count === 1 ? "processo" : "processos"}</div>
+                </div>
+              ); })}
+            </div>
+
+            {TIERS.map(tierSection)}
+          </>
+        )}
+      </div>
+
+      <div style={{ padding: "8px 24px", borderTop: `1px solid ${C.panelBorder}`, display: "flex", justifyContent: "space-between", fontSize: 10, color: C.dimText, fontFamily: FONT }}>
+        <span>🔗 Google Sheets • Status_Contrato = Não</span>
+        <span>INDEPENDENT BRAZIL • Trading Desk v4.0 • {year}</span>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [data, setData] = useState(null);
@@ -3116,6 +3261,7 @@ export default function App() {
   const [tvMode, setTvMode] = useState(false);
   const [consultaMode, setConsultaMode] = useState(false);
   const [financeiroMode, setFinanceiroMode] = useState(false);
+  const [contratosMode, setContratosMode] = useState(false);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [paused, setPaused] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -3216,6 +3362,7 @@ export default function App() {
   const d = data;
   if (consultaMode) return <TraderConsulta d={d} onExit={() => setConsultaMode(false)} />;
   if (financeiroMode) return <VisaoFinanceira d={d} onExit={() => setFinanceiroMode(false)} />;
+  if (contratosMode) return <RadarContratos d={d} onExit={() => setContratosMode(false)} />;
   const maxTraderLob = d.traderRanking.length > 0 ? Math.max(...d.traderRanking.map(t => config.viewMode === "ano" ? t.lobAno : t.lobMes)) : 1;
   // Destaque de risco de contrato: Sem Booking + Status_Contrato "Não"
   const riscoContrato = (() => {
@@ -3308,6 +3455,7 @@ export default function App() {
           <button onClick={() => { setTvMode(true); setCurrentSlide(0); setPaused(false); }} style={{ background: `linear-gradient(135deg, ${C.blue}, ${C.cyan})`, border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, color: "#fff", fontFamily: FONT, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>📺 Modo TV</button>
           <button onClick={() => setConsultaMode(true)} style={{ background: `linear-gradient(135deg, ${C.green}, #00bfa5)`, border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, color: "#fff", fontFamily: FONT, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>👥 Consulta Traders</button>
           <button onClick={() => setFinanceiroMode(true)} style={{ background: `linear-gradient(135deg, ${C.red}, #ff6d00)`, border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, color: "#fff", fontFamily: FONT, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>💰 Financeiro</button>
+          <button onClick={() => setContratosMode(true)} style={{ background: `linear-gradient(135deg, #ff6d00, ${C.amber})`, border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, color: "#fff", fontFamily: FONT, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>📄 Contratos</button>
           <div style={{ position: "relative" }}>
             <button onClick={() => setReportsOpen(!reportsOpen)} style={{ background: `linear-gradient(135deg, ${C.amber}, #ff9800)`, border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, color: "#fff", fontFamily: FONT, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>📄 Relatórios</button>
             {reportsOpen && (
