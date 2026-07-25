@@ -2736,6 +2736,8 @@ function TraderConsulta({ d, onExit }) {
   const [trader, setTrader] = useState(null);
   const [month, setMonth] = useState(null);
   const [status, setStatus] = useState(null);
+  const [sortKey, setSortKey] = useState("lob");
+  const [sortDir, setSortDir] = useState("desc");
 
   const year = new Date().getFullYear();
   const currentMonthIdx = new Date().getMonth();
@@ -2952,8 +2954,50 @@ function TraderConsulta({ d, onExit }) {
         )}
 
         {/* NÍVEL 2 — Status */}
-        {level === 2 && (
+        {level === 2 && (() => {
+          const mIB = rows.filter(r => r.etdMonth === month);
+          const ibEmb = mIB.filter(r => isRealiz(r.status));
+          const trEmb = monthRows.filter(r => isRealiz(r.status));
+          const trBooking = monthRows.filter(r => (r.status || "").toLowerCase().includes("com booking"));
+          const ibLob = ibEmb.reduce((s, r) => s + r.lob, 0);
+          const trLob = trEmb.reduce((s, r) => s + r.lob, 0);
+          const bkLob = trBooking.reduce((s, r) => s + r.lob, 0);
+          const pctLob = ibLob > 0 ? (trLob / ibLob * 100) : 0;
+          const pctCount = ibEmb.length > 0 ? (trEmb.length / ibEmb.length * 100) : 0;
+          const barW = ibLob > 0 ? Math.min(trLob / ibLob * 100, 100) : 0;
+          return (
           <>
+            {/* Painel de embarques — trader vs IB */}
+            <div style={{ background: `linear-gradient(135deg, ${C.panel}, ${C.green}0a)`, border: `1px solid ${C.panelBorder}`, borderRadius: 12, padding: "18px 22px", marginBottom: 22 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: "#fff", fontFamily: FONT, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 16 }}>📦 Embarques de {MONTH_NAMES[month]}</div>
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: C.muted, fontFamily: FONT }}>IB · empresa</span>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: "#fff", fontFamily: FONT }}>{fmtUSD(ibLob)} · {ibEmb.length} {ibEmb.length === 1 ? "embarque" : "embarques"}</span>
+                </div>
+                <div style={{ height: 22, background: C.panelBorder, borderRadius: 6, overflow: "hidden" }}>
+                  <div style={{ width: "100%", height: "100%", background: `linear-gradient(90deg, ${C.green}66, ${C.green}33)`, borderRadius: 6 }} />
+                </div>
+              </div>
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: C.cyan, fontFamily: FONT }}>{trader}</span>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: "#fff", fontFamily: FONT }}>{fmtUSD(trLob)} · {trEmb.length} {trEmb.length === 1 ? "embarque" : "embarques"}</span>
+                </div>
+                <div style={{ height: 22, background: C.panelBorder, borderRadius: 6, overflow: "hidden" }}>
+                  <div style={{ width: `${barW}%`, height: "100%", background: `linear-gradient(90deg, ${C.cyan}, ${C.cyan}99)`, borderRadius: 6, minWidth: barW > 0 ? 3 : 0, transition: "width 0.4s" }} />
+                </div>
+                <div style={{ fontSize: 12, color: C.muted, fontFamily: FONT, marginTop: 6 }}>
+                  Representa <b style={{ color: C.cyan }}>{pctLob.toFixed(0)}%</b> do LOB embarcado da IB · <b style={{ color: C.cyan }}>{pctCount.toFixed(0)}%</b> dos embarques do mês
+                </div>
+              </div>
+              {trBooking.length > 0 && (
+                <div style={{ marginTop: 14, padding: "10px 14px", background: `${C.amber}14`, border: `1px solid ${C.amber}40`, borderRadius: 8, fontSize: 13, color: "#fff", fontFamily: FONT }}>
+                  💡 Ainda dá pra embarcar mais <b style={{ color: C.amber }}>{trBooking.length}</b> que {trBooking.length === 1 ? "está" : "estão"} <b>Com Booking</b> este mês ({fmtUSD(bkLob)}). Acompanhe! 👀
+                </div>
+              )}
+            </div>
+
             <div style={{ fontSize: 15, color: C.muted, fontFamily: FONT, marginBottom: 18 }}>Status dos processos de <b style={{ color: "#fff" }}>{trader}</b> em <b style={{ color: "#fff" }}>{MONTH_NAMES[month]}</b>:</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 14 }}>
               {statuses.map(st => { const c = statusColor(st.name); return card(st.name, () => setStatus(st.name), c, (
@@ -2966,7 +3010,8 @@ function TraderConsulta({ d, onExit }) {
               {statuses.length === 0 && <div style={{ color: C.muted, fontFamily: FONT }}>Nenhum processo neste mês.</div>}
             </div>
           </>
-        )}
+          );
+        })()}
 
         {/* NÍVEL 3 — Processos */}
         {level === 3 && (() => {
@@ -2980,7 +3025,38 @@ function TraderConsulta({ d, onExit }) {
             ? "minmax(100px,1fr) 1.2fr 1.5fr 1.2fr 1fr 0.95fr 1fr minmax(90px,0.9fr)"
             : "minmax(120px,1.2fr) 2fr 1.4fr 1.4fr minmax(120px,1fr)";
           const minW = abertoLvl3 ? 1050 : "auto";
-          const sorted = processos.slice().sort((a, b) => b.lob - a.lob);
+          const visibleCols = abertoLvl3 ? ["processo", "responsavel", "cliente", "produto", "linha", "etd", "prePgto", "lob"] : ["processo", "cliente", "produto", "linha", "lob"];
+          const effKey = visibleCols.includes(sortKey) ? sortKey : "lob";
+          const parseBr = (s) => { const m = String(s || "").trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/); if (!m) return null; let y = +m[3]; if (y < 100) y += 2000; return new Date(y, +m[2] - 1, +m[1]).getTime(); };
+          const getVal = (r, key) => {
+            switch (key) {
+              case "etd": return { t: "num", v: (r.etd instanceof Date && !isNaN(r.etd)) ? r.etd.getTime() : null };
+              case "prePgto": return { t: "num", v: parseBr(preInfo(r.processo)) };
+              case "responsavel": return { t: "str", v: r.responsavel || "" };
+              case "cliente": return { t: "str", v: r.cliente || "" };
+              case "produto": return { t: "str", v: r.produto || "" };
+              case "linha": return { t: "str", v: r.linha || "" };
+              case "processo": return { t: "str", v: r.processo || "" };
+              default: return { t: "num", v: r.lob };
+            }
+          };
+          const dir = sortDir === "asc" ? 1 : -1;
+          const sorted = processos.slice().sort((a, b) => {
+            const va = getVal(a, effKey), vb = getVal(b, effKey);
+            const na = va.v === null || va.v === undefined || va.v === "";
+            const nb = vb.v === null || vb.v === undefined || vb.v === "";
+            if (na && nb) return 0;
+            if (na) return 1;                 // vazios / "sem pgto" sempre por último
+            if (nb) return -1;
+            if (va.t === "str") return va.v.localeCompare(vb.v, "pt", { numeric: true, sensitivity: "base" }) * dir;
+            return (va.v - vb.v) * dir;
+          });
+          const toggleSort = (key) => { if (effKey === key) setSortDir(x => x === "asc" ? "desc" : "asc"); else { setSortKey(key); setSortDir(key === "lob" ? "desc" : "asc"); } };
+          const Th = (label, key, right) => (
+            <div onClick={() => toggleSort(key)} title="Clique para ordenar" style={{ cursor: "pointer", userSelect: "none", textAlign: right ? "right" : "left", color: effKey === key ? "#fff" : C.muted, transition: "color 0.15s" }}>
+              {label}{effKey === key ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
+            </div>
+          );
           return (
           <>
             <div style={{ fontSize: 15, color: C.muted, fontFamily: FONT, marginBottom: 18 }}>
@@ -2989,12 +3065,12 @@ function TraderConsulta({ d, onExit }) {
             </div>
             <div style={{ background: C.panel, border: `1px solid ${C.panelBorder}`, borderRadius: 12, overflow: "auto", maxWidth: abertoLvl3 ? 1500 : 1100 }}>
               <div style={{ display: "grid", gridTemplateColumns: GRIDc, minWidth: minW, padding: "12px 18px", background: `${c}12`, borderBottom: `1px solid ${C.panelBorder}`, fontSize: 11, fontWeight: 800, color: C.muted, textTransform: "uppercase", letterSpacing: 0.6, fontFamily: FONT }}>
-                <div>Nº Processo</div>
-                {abertoLvl3 && <div>Responsável</div>}
-                <div>Cliente</div><div>Produto</div><div>Linha</div>
-                {abertoLvl3 && <div>ETD</div>}
-                {abertoLvl3 && <div>Pré-pgto</div>}
-                <div style={{ textAlign: "right" }}>LOB (USD)</div>
+                {Th("Nº Processo", "processo")}
+                {abertoLvl3 && Th("Responsável", "responsavel")}
+                {Th("Cliente", "cliente")}{Th("Produto", "produto")}{Th("Linha", "linha")}
+                {abertoLvl3 && Th("ETD", "etd")}
+                {abertoLvl3 && Th("Pré-pgto", "prePgto")}
+                {Th("LOB (USD)", "lob", true)}
               </div>
               {sorted.map((r, i) => { const pre = abertoLvl3 ? preInfo(r.processo) : null; return (
                 <div key={r.processo + i} style={{ display: "grid", gridTemplateColumns: GRIDc, minWidth: minW, padding: "12px 18px", borderBottom: `1px solid ${C.panelBorder}55`, fontSize: 13, color: "#fff", fontFamily: FONT, alignItems: "center" }}>
