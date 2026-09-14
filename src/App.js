@@ -1299,9 +1299,9 @@ const lobOutros = monthRows.filter(r => !isRealizado(r.status)).reduce((s, r) =>
         monthly25.push({ month: MONTH_SHORT[m], monthFull: MONTH_NAMES[m], monthIndex: m, lob: lobTotal, meta, count: mRows.length });
       }
 
-      // Monthly LOB 2026 (realized only: embarcado + oper. finalizado)
+      // Monthly LOB 2026 (realizado; e lobAll = todos os status, p/ meses em andamento)
       const monthly26 = [];
-      for (let m = 0; m <= Math.min(currentMonth + 2, 11); m++) {
+      for (let m = 0; m < 12; m++) {
         const mRows = yearRows.filter(r => r.etdMonth === m);
         const isReal = (s) => s.toLowerCase() === "embarcado" || s.toLowerCase() === "oper. finalizado";
         const lobReal = mRows.filter(r => isReal(r.status)).reduce((s, r) => s + r.lob, 0);
@@ -2378,17 +2378,37 @@ function SlideSazonalidade({ d }) {
   const s = d.seasonalData;
   if (!s) return <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: C.muted, fontSize: 18, fontFamily: FONT }}>Sem dados de 2025 — configure a aba LOB 2025</div>;
 
-  const growthPct = ((s.growthFactor - 1) * 100).toFixed(1);
-  const growthColor = s.growthFactor >= 1 ? C.green : C.red;
+  const cur = new Date().getMonth();
+  // Acumulado do ano (YoY, mesmo período)
+  const acum26 = s.monthly26.filter(m => m.monthIndex <= cur).reduce((a, m) => a + (m.lobReal || 0), 0);
+  const acum25 = s.monthly25.filter(m => m.monthIndex <= cur).reduce((a, m) => a + m.lob, 0);
+  const yoyPct = acum25 > 0 ? ((acum26 / acum25 - 1) * 100) : 0;
+  const yoyColor = yoyPct >= 0 ? C.green : C.red;
 
-  // Get max for bar scaling
+  // Escala das barras (meses futuros usam o pipeline / lobAll)
   const all25 = s.monthly25.map(m => m.lob);
-  const all26 = s.monthly26.map(m => m.lobReal || 0);
+  const all26 = s.monthly26.map(m => m.monthIndex > cur ? (m.lobAll || 0) : (m.lobReal || 0));
   const maxLob = Math.max(...all25, ...all26) || 1;
 
   return (
     <div style={{ flex: 1, padding: "0 20px", display: "flex", flexDirection: "column", gap: 4 }}>
       <div style={{ fontSize: 26, fontWeight: 900, color: "#fff", fontFamily: FONT, textAlign: "center" }}>📈 SAZONALIDADE — 2025 vs 2026</div>
+
+      {/* Acumulado YoY — mesmo período */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 24, background: `linear-gradient(135deg, ${C.panel}, ${yoyColor}0d)`, border: `1px solid ${yoyColor}40`, borderRadius: 10, padding: "8px 20px" }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.6, color: C.muted, textTransform: "uppercase", fontFamily: FONT }}>Acumulado 2026 · Jan–{MONTH_SHORT[cur]}</div>
+          <div style={{ fontSize: 22, fontWeight: 900, color: C.cyan, fontFamily: FONT }}>{fmtUSD(acum26)}</div>
+        </div>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 22, fontWeight: 900, color: yoyColor, fontFamily: FONT }}>{yoyPct >= 0 ? "▲ +" : "▼ "}{yoyPct.toFixed(1)}%</div>
+          <div style={{ fontSize: 9, color: C.muted, fontFamily: FONT }}>vs mesmo período de 2025</div>
+        </div>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.6, color: C.muted, textTransform: "uppercase", fontFamily: FONT }}>2025 · Jan–{MONTH_SHORT[cur]}</div>
+          <div style={{ fontSize: 22, fontWeight: 900, color: C.amber, fontFamily: FONT }}>{fmtUSD(acum25)}</div>
+        </div>
+      </div>
 
       {/* Seasonal Index - prominent */}
       <div style={{ background: `linear-gradient(135deg, ${C.panel}, #1a2535)`, border: `1px solid ${C.panelBorder}`, borderRadius: 10, padding: "10px 16px", display: "flex", alignItems: "center", gap: 12, justifyContent: "center" }}>
@@ -2402,9 +2422,6 @@ function SlideSazonalidade({ d }) {
             </div>
           );
         })}
-        <div style={{ width: 1, height: 30, background: C.panelBorder, margin: "0 4px" }} />
-        <span style={{ fontSize: 12, color: C.muted, fontFamily: FONT }}>Crescimento:</span>
-        <span style={{ fontSize: 16, fontWeight: 900, color: growthColor, fontFamily: FONT }}>{s.growthFactor >= 1 ? "+" : ""}{growthPct}%</span>
       </div>
 
       {/* Bar chart */}
@@ -2412,7 +2429,7 @@ function SlideSazonalidade({ d }) {
         {s.monthly25.map((m25, i) => {
           const m26 = s.monthly26.find(x => x.monthIndex === i);
           const h25 = maxLob > 0 ? (m25.lob / maxLob) * 100 : 0;
-          const lob26 = m26 ? (m26.lobReal || 0) : 0;
+          const lob26 = m26 ? (i > cur ? (m26.lobAll || 0) : (m26.lobReal || 0)) : 0;
           const h26 = maxLob > 0 ? (lob26 / maxLob) * 100 : 0;
           const isCurrent = i === new Date().getMonth();
           const isFuture = i > new Date().getMonth();
@@ -2427,27 +2444,27 @@ function SlideSazonalidade({ d }) {
               {/* Bars with LOB on top of each */}
               <div style={{ width: "100%", display: "flex", gap: 2, justifyContent: "center", alignItems: "flex-end", flex: 1 }}>
                 {/* 2025 bar + LOB */}
-                <div style={{ width: isFuture ? "80%" : "45%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%" }}>
+                <div style={{ width: "45%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%" }}>
                   <div style={{ fontSize: 10, fontWeight: 800, color: C.amber, fontFamily: FONT, marginBottom: 2 }}>{fmtUSD(m25.lob)}</div>
                   <div style={{ width: "100%", height: `${Math.max(h25, 3)}%`, background: `linear-gradient(180deg, ${C.amber}80, ${C.amber}40)`, borderRadius: "3px 3px 0 0", display: "flex", alignItems: "center", justifyContent: "center", minHeight: 20 }}>
                     <span style={{ fontSize: 9, fontWeight: 900, color: "#fff", fontFamily: FONT }}>{pct25}%</span>
                   </div>
                 </div>
-                {/* 2026 bar + LOB */}
-                {!isFuture && (
+                {/* 2026 bar + LOB (futuro = cinza, em andamento) */}
+                {(!isFuture || lob26 > 0) && (
                   <div style={{ width: "45%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%" }}>
-                    <div style={{ fontSize: 10, fontWeight: 800, color: C.cyan, fontFamily: FONT, marginBottom: 2 }}>{fmtUSD(lob26)}</div>
-                    <div style={{ width: "100%", height: `${Math.max(h26, 3)}%`, background: isCurrent ? `linear-gradient(180deg, ${C.cyan}90, ${C.cyan}50)` : `linear-gradient(180deg, ${C.cyan}, ${C.cyan}80)`, borderRadius: "3px 3px 0 0", display: "flex", alignItems: "center", justifyContent: "center", border: isCurrent ? `1px dashed ${C.cyan}` : "none", minHeight: 20 }}>
+                    <div style={{ fontSize: 10, fontWeight: 800, color: isFuture ? C.muted : C.cyan, fontFamily: FONT, marginBottom: 2 }}>{fmtUSD(lob26)}</div>
+                    <div style={{ width: "100%", height: `${Math.max(h26, 3)}%`, background: isFuture ? `linear-gradient(180deg, ${C.muted}, ${C.muted}66)` : isCurrent ? `linear-gradient(180deg, ${C.cyan}90, ${C.cyan}50)` : `linear-gradient(180deg, ${C.cyan}, ${C.cyan}80)`, borderRadius: "3px 3px 0 0", display: "flex", alignItems: "center", justifyContent: "center", border: isCurrent ? `1px dashed ${C.cyan}` : isFuture ? `1px dashed ${C.muted}` : "none", minHeight: 20 }}>
                       <span style={{ fontSize: 9, fontWeight: 900, color: "#fff", fontFamily: FONT }}>{pct26}%</span>
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* Meta values below */}
+              {/* Meta values below (branco = meta) */}
               <div style={{ display: "flex", gap: 2, width: "100%", justifyContent: "center" }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: `${C.amber}aa`, fontFamily: FONT, textAlign: "center", flex: 1 }}>{fmtUSD(m25.meta)}</div>
-                {!isFuture && meta26 > 0 && <div style={{ fontSize: 10, fontWeight: 700, color: `${C.cyan}aa`, fontFamily: FONT, textAlign: "center", flex: 1 }}>{fmtUSD(meta26)}</div>}
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#fff", fontFamily: FONT, textAlign: "center", flex: 1 }}>{fmtUSD(m25.meta)}</div>
+                {(!isFuture || lob26 > 0) && meta26 > 0 && <div style={{ fontSize: 10, fontWeight: 700, color: "#fff", fontFamily: FONT, textAlign: "center", flex: 1 }}>{fmtUSD(meta26)}</div>}
               </div>
 
               {/* Month label */}
@@ -2458,9 +2475,11 @@ function SlideSazonalidade({ d }) {
       </div>
 
       {/* Legend */}
-      <div style={{ display: "flex", gap: 20, justifyContent: "center" }}>
-        <span style={{ fontSize: 11, color: "#fff", display: "flex", alignItems: "center", gap: 5, fontFamily: FONT }}><span style={{ width: 14, height: 10, background: `${C.amber}60`, borderRadius: 2, display: "inline-block" }} /> 2025 (LOB / Meta / %)</span>
-        <span style={{ fontSize: 11, color: "#fff", display: "flex", alignItems: "center", gap: 5, fontFamily: FONT }}><span style={{ width: 14, height: 10, background: C.cyan, borderRadius: 2, display: "inline-block" }} /> 2026 (LOB / Meta / %)</span>
+      <div style={{ display: "flex", gap: 20, justifyContent: "center", alignItems: "center", flexWrap: "wrap" }}>
+        <span style={{ fontSize: 11, color: "#fff", display: "flex", alignItems: "center", gap: 5, fontFamily: FONT }}><span style={{ width: 14, height: 10, background: `${C.amber}80`, borderRadius: 2, display: "inline-block" }} /> 2025 realizado</span>
+        <span style={{ fontSize: 11, color: "#fff", display: "flex", alignItems: "center", gap: 5, fontFamily: FONT }}><span style={{ width: 14, height: 10, background: C.cyan, borderRadius: 2, display: "inline-block" }} /> 2026 realizado</span>
+        <span style={{ fontSize: 11, color: "#fff", display: "flex", alignItems: "center", gap: 5, fontFamily: FONT }}><span style={{ width: 14, height: 10, background: C.muted, borderRadius: 2, display: "inline-block" }} /> 2026 em andamento</span>
+        <span style={{ fontSize: 11, color: C.muted, fontFamily: FONT }}>Topo: realizado · Na barra: % da meta · <span style={{ color: "#fff", fontWeight: 700 }}>Branco (base): meta</span></span>
       </div>
     </div>
   );
