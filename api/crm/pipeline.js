@@ -58,11 +58,23 @@ module.exports = async (req, res) => {
   try {
     const token = await getToken();
 
+    // ---- Modo "só amostra": ?fields=1 devolve APENAS 1 oportunidade + 1 lead completos ----
+    if (req.query && req.query.fields) {
+      const amostra = { ok: true, sampleOpportunity: null, sampleLead: null, errors: [] };
+      try { const o = await query(token, `opportunities?$top=1`); amostra.sampleOpportunity = o[0] || null; }
+      catch (e) { amostra.errors.push(`sampleOpportunity: ${e.message}`); }
+      try { const l = await query(token, `leads?$top=1`); amostra.sampleLead = l[0] || null; }
+      catch (e) { amostra.errors.push(`sampleLead: ${e.message}`); }
+      return res.status(200).json(amostra);
+    }
+
     // ---- Oportunidades ----
     try {
       const sel = [
         "name", "estimatedvalue", "actualvalue", "estimatedclosedate",
         "closeprobability", "statecode", "statuscode", "createdon", "_ownerid_value",
+        "blue_valor_total_lucro_usd", "blue_valor_compra_total_usd", "blue_valor_venda_produtos_usd",
+        "blue_linha", "blue_produtos", "stepname", "_blue_fornecedor_value",
       ].join(",");
       out.opportunities = await query(token, `opportunities?$select=${sel}&$orderby=createdon desc&$top=1000`);
     } catch (e) {
