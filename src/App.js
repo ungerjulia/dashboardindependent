@@ -3421,10 +3421,10 @@ function VisaoCRM({ onExit }) {
 
   const switchTab = (t) => { setTab(t); setFOwner(null); };
 
-  const groupBy = (arr, keyFn) => {
+  const groupBy = (arr, keyFn, valFn) => {
     const m = {};
-    arr.forEach(x => { const k = keyFn(x) || "—"; if (!m[k]) m[k] = { k, count: 0, valor: 0 }; m[k].count++; m[k].valor += Number(x.estimatedvalue) || 0; });
-    return Object.values(m).sort((a, b) => b.count - a.count);
+    arr.forEach(x => { const k = keyFn(x) || "—"; if (!m[k]) m[k] = { k, count: 0, valor: 0 }; m[k].count++; m[k].valor += valFn ? valFn(x) : 0; });
+    return Object.values(m).sort((a, b) => (b.valor - a.valor) || (b.count - a.count));
   };
 
   const kpi = (label, valor, sub, color) => (
@@ -3462,47 +3462,73 @@ function VisaoCRM({ onExit }) {
   );
 
   // ── Conteúdo Oportunidades ──
+  const lucroDe = (o) => Number(o.blue_valor_total_lucro_usd) || 0;
+  const vendaDe = (o) => Number(o.blue_valor_venda_produtos_usd) || 0;
+  const compraDe = (o) => Number(o.blue_valor_compra_total_usd) || 0;
+  const temValor = (o) => lucroDe(o) !== 0 || vendaDe(o) !== 0 || compraDe(o) !== 0;
+  const linhaDe = (o) => fv(o, "blue_linha") || "—";
+  const estagioDe = (o) => o.stepname || fv(o, "statuscode") || "—";
+  const cell = (v) => v > 0 ? fmtV(v) : "—";
+
   const renderOpps = () => {
     const all = applyOwner(opps);
     const abertas = all.filter(o => Number(o.statecode) === 0);
     const ganhas = all.filter(o => Number(o.statecode) === 1);
     const perdidas = all.filter(o => Number(o.statecode) === 2);
-    const valorAbertas = abertas.reduce((s, o) => s + (Number(o.estimatedvalue) || 0), 0);
-    const estagio = groupBy(abertas, o => fv(o, "statuscode"));
+    const lucroAbertas = abertas.reduce((s, o) => s + lucroDe(o), 0);
+    const lucroGanhas = ganhas.reduce((s, o) => s + lucroDe(o), 0);
+    const semValor = abertas.filter(o => !temValor(o));
+
+    const estagio = groupBy(abertas, estagioDe, lucroDe);
     const maxEst = Math.max(1, ...estagio.map(e => e.count));
-    const porDono = groupBy(abertas, o => fv(o, "_ownerid_value")).slice(0, 8);
+    const porLinha = groupBy(abertas, linhaDe, lucroDe);
+    const maxLinha = Math.max(1, ...porLinha.map(e => e.count));
+    const porDono = groupBy(abertas, o => fv(o, "_ownerid_value"), lucroDe).slice(0, 8);
     const maxDono = Math.max(1, ...porDono.map(e => e.count));
-    const lista = abertas.slice().sort((a, b) => (Number(b.estimatedvalue) || 0) - (Number(a.estimatedvalue) || 0)).slice(0, 20);
+
+    const lista = abertas.slice().sort((a, b) => lucroDe(b) - lucroDe(a) || vendaDe(b) - vendaDe(a)).slice(0, 25);
+    const rt = (e) => `${e.count} · ${cell(e.valor)}`;
     return (
       <>
         <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap" }}>
-          {kpi("Abertas", String(abertas.length), `Valor est.: ${fmtV(valorAbertas)}`, OPP)}
-          {kpi("Ganhas", String(ganhas.length), "no período", C.green)}
+          {kpi("Abertas", String(abertas.length), `Lucro previsto: ${cell(lucroAbertas)}`, OPP)}
+          {kpi("Ganhas", String(ganhas.length), `Lucro: ${cell(lucroGanhas)}`, C.green)}
           {kpi("Perdidas", String(perdidas.length), "no período", C.red)}
+          {kpi("⚠️ Sem valor", String(semValor.length), abertas.length ? `${Math.round(semValor.length / abertas.length * 100)}% das abertas` : "—", C.amber)}
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, marginBottom: 18 }}>
+        {semValor.length > 0 && (
+          <div style={{ background: `${C.amber}12`, border: `1px solid ${C.amber}40`, borderLeft: `4px solid ${C.amber}`, borderRadius: 10, padding: "10px 16px", marginBottom: 18, fontSize: 13, color: "#fff", fontFamily: FONT }}>
+            💡 <b style={{ color: C.amber }}>{semValor.length}</b> oportunidade{semValor.length === 1 ? "" : "s"} aberta{semValor.length === 1 ? "" : "s"} {semValor.length === 1 ? "está" : "estão"} <b>sem valor de compra/venda/lucro preenchido</b> no Dynamics. Preencher destrava o valor real do funil.
+          </div>
+        )}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 18 }}>
           <div style={{ background: C.panel, border: `1px solid ${C.panelBorder}`, borderRadius: 12, padding: "18px 20px" }}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: "#fff", fontFamily: FONT, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 14 }}>🔵 Funil por estágio (abertas)</div>
-            {estagio.length ? estagio.map(e => barRow(e.k, e.count, maxEst, OPP)) : <div style={{ color: C.muted, fontFamily: FONT, fontSize: 13 }}>Sem oportunidades abertas.</div>}
+            <div style={{ fontSize: 13, fontWeight: 800, color: "#fff", fontFamily: FONT, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 14 }}>🔵 Por estágio</div>
+            {estagio.length ? estagio.map(e => barRow(e.k, e.count, maxEst, OPP, rt(e))) : <div style={{ color: C.muted, fontFamily: FONT, fontSize: 13 }}>Sem abertas.</div>}
           </div>
           <div style={{ background: C.panel, border: `1px solid ${C.panelBorder}`, borderRadius: 12, padding: "18px 20px" }}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: "#fff", fontFamily: FONT, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 14 }}>👤 Por responsável (abertas)</div>
-            {porDono.length ? porDono.map(e => barRow(e.k, e.count, maxDono, ACCENT)) : <div style={{ color: C.muted, fontFamily: FONT, fontSize: 13 }}>Sem dados.</div>}
+            <div style={{ fontSize: 13, fontWeight: 800, color: "#fff", fontFamily: FONT, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 14 }}>🏷️ Por linha de negócio</div>
+            {porLinha.length ? porLinha.map(e => barRow(e.k, e.count, maxLinha, C.green, rt(e))) : <div style={{ color: C.muted, fontFamily: FONT, fontSize: 13 }}>Sem dados.</div>}
+          </div>
+          <div style={{ background: C.panel, border: `1px solid ${C.panelBorder}`, borderRadius: 12, padding: "18px 20px" }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: "#fff", fontFamily: FONT, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 14 }}>👤 Por responsável</div>
+            {porDono.length ? porDono.map(e => barRow(e.k, e.count, maxDono, ACCENT, rt(e))) : <div style={{ color: C.muted, fontFamily: FONT, fontSize: 13 }}>Sem dados.</div>}
           </div>
         </div>
-        <div style={{ background: C.panel, border: `1px solid ${C.panelBorder}`, borderRadius: 12, overflow: "hidden" }}>
-          <div style={{ padding: "12px 20px", fontSize: 13, fontWeight: 800, color: "#fff", fontFamily: FONT, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: `1px solid ${C.panelBorder}` }}>Oportunidades abertas</div>
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1.3fr 1fr 1fr 0.8fr 1fr", padding: "10px 20px", fontSize: 10, fontWeight: 800, color: C.muted, textTransform: "uppercase", letterSpacing: 0.6, fontFamily: FONT, borderBottom: `1px solid ${C.panelBorder}` }}>
-            <div>Oportunidade</div><div>Responsável</div><div>Valor est.</div><div>Fechamento</div><div>Prob.</div><div>Estágio</div>
+        <div style={{ background: C.panel, border: `1px solid ${C.panelBorder}`, borderRadius: 12, overflow: "auto" }}>
+          <div style={{ padding: "12px 20px", fontSize: 13, fontWeight: 800, color: "#fff", fontFamily: FONT, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: `1px solid ${C.panelBorder}` }}>Oportunidades abertas · maiores lucros</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1.8fr 1.2fr 0.9fr 0.9fr 0.9fr 0.9fr 1.1fr", minWidth: 900, padding: "10px 20px", fontSize: 10, fontWeight: 800, color: C.muted, textTransform: "uppercase", letterSpacing: 0.6, fontFamily: FONT, borderBottom: `1px solid ${C.panelBorder}` }}>
+            <div>Oportunidade</div><div>Responsável</div><div>Linha</div><div>Compra</div><div>Venda</div><div>Lucro</div><div>Estágio</div>
           </div>
           {lista.map((o, i) => (
-            <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1.3fr 1fr 1fr 0.8fr 1fr", padding: "11px 20px", fontSize: 13, color: "#fff", fontFamily: FONT, alignItems: "center", borderBottom: `1px solid ${C.panelBorder}55` }}>
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "1.8fr 1.2fr 0.9fr 0.9fr 0.9fr 0.9fr 1.1fr", minWidth: 900, padding: "11px 20px", fontSize: 13, color: "#fff", fontFamily: FONT, alignItems: "center", borderBottom: `1px solid ${C.panelBorder}55` }}>
               <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.name || "—"}</div>
               <div style={{ color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fv(o, "_ownerid_value") || "—"}</div>
-              <div style={{ fontWeight: 800, color: OPP }}>{fmtV(o.estimatedvalue)}</div>
-              <div style={{ color: C.muted }}>{fmtDate(o.estimatedclosedate)}</div>
-              <div style={{ color: C.muted }}>{o.closeprobability != null ? `${o.closeprobability}%` : "—"}</div>
-              <div style={{ color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fv(o, "statuscode") || "—"}</div>
+              <div style={{ color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{linhaDe(o)}</div>
+              <div style={{ color: C.muted }}>{cell(compraDe(o))}</div>
+              <div style={{ color: C.muted }}>{cell(vendaDe(o))}</div>
+              <div style={{ fontWeight: 800, color: temValor(o) ? C.green : C.muted }}>{cell(lucroDe(o))}</div>
+              <div style={{ color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{estagioDe(o)}</div>
             </div>
           ))}
           {lista.length === 0 && <div style={{ padding: 20, color: C.muted, fontFamily: FONT, textAlign: "center" }}>Sem oportunidades abertas.</div>}
