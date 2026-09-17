@@ -3383,6 +3383,164 @@ function RadarContratos({ d, onExit }) {
   );
 }
 
+// ══════════════════════════════════════════════════════════════
+//  CRM — DYNAMICS 365 SALES (funil: oportunidades + leads)
+//  Fonte independente: lê /api/crm/pipeline (backend Dataverse)
+// ══════════════════════════════════════════════════════════════
+function VisaoCRM({ onExit }) {
+  const [st, setSt] = useState({ loading: true, error: null, data: null });
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch("/api/crm/pipeline");
+        const j = await r.json();
+        if (!alive) return;
+        if (!r.ok || j.ok === false) { setSt({ loading: false, error: j.erro || `Erro ${r.status}`, data: null }); return; }
+        setSt({ loading: false, error: null, data: j });
+      } catch (e) { if (alive) setSt({ loading: false, error: e.message, data: null }); }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  const ACCENT = "#7c4dff";
+  const fv = (rec, f) => rec[`${f}@OData.Community.Display.V1.FormattedValue`] ?? rec[f] ?? null;
+  const fmtV = (v) => { v = Number(v) || 0; const a = Math.abs(v); if (a >= 1e6) return (v / 1e6).toFixed(2) + "M"; if (a >= 1e3) return (v / 1e3).toFixed(1) + "K"; return String(Math.round(v)); };
+  const fmtDate = (s) => { if (!s) return "—"; const d = new Date(s); if (isNaN(d)) return "—"; return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`; };
+
+  const data = st.data || { opportunities: [], leads: [], errors: [] };
+  const opps = data.opportunities || [];
+  const leads = data.leads || [];
+  const abertas = opps.filter(o => Number(o.statecode) === 0);
+  const ganhas = opps.filter(o => Number(o.statecode) === 1);
+  const perdidas = opps.filter(o => Number(o.statecode) === 2);
+  const valorAbertas = abertas.reduce((s, o) => s + (Number(o.estimatedvalue) || 0), 0);
+  const valorGanhas = ganhas.reduce((s, o) => s + (Number(o.actualvalue) || Number(o.estimatedvalue) || 0), 0);
+  const leadsAbertos = leads.filter(l => Number(l.statecode) === 0);
+
+  const porEstagio = (() => { const m = {}; abertas.forEach(o => { const k = fv(o, "statuscode") || "—"; if (!m[k]) m[k] = { k, count: 0, valor: 0 }; m[k].count++; m[k].valor += Number(o.estimatedvalue) || 0; }); return Object.values(m).sort((a, b) => b.valor - a.valor); })();
+  const maxEstagio = Math.max(1, ...porEstagio.map(e => e.valor));
+  const porDono = (() => { const m = {}; abertas.forEach(o => { const k = fv(o, "_ownerid_value") || "—"; if (!m[k]) m[k] = { k, count: 0, valor: 0 }; m[k].count++; m[k].valor += Number(o.estimatedvalue) || 0; }); return Object.values(m).sort((a, b) => b.valor - a.valor).slice(0, 8); })();
+  const maxDono = Math.max(1, ...porDono.map(e => e.valor));
+  const abertasTop = abertas.slice().sort((a, b) => (Number(b.estimatedvalue) || 0) - (Number(a.estimatedvalue) || 0)).slice(0, 15);
+
+  const kpi = (label, valor, sub, color) => (
+    <div style={{ flex: 1, minWidth: 170, background: `linear-gradient(135deg, ${C.panel}, ${color}0d)`, border: `1px solid ${color}40`, borderLeft: `4px solid ${color}`, borderRadius: 12, padding: "16px 20px" }}>
+      <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.7, color: C.muted, textTransform: "uppercase", fontFamily: FONT, marginBottom: 6 }}>{label}</div>
+      <div style={{ fontSize: 26, fontWeight: 900, color, fontFamily: FONT }}>{valor}</div>
+      {sub && <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT, marginTop: 2 }}>{sub}</div>}
+    </div>
+  );
+
+  const barRow = (label, count, valor, max, color) => (
+    <div key={label} style={{ marginBottom: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+        <span style={{ fontSize: 13, color: "#fff", fontFamily: FONT, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "60%" }}>{label}</span>
+        <span style={{ fontSize: 12, color: C.muted, fontFamily: FONT }}>{count} · {fmtV(valor)}</span>
+      </div>
+      <div style={{ height: 14, background: C.panelBorder, borderRadius: 4, overflow: "hidden" }}>
+        <div style={{ width: `${Math.max((valor / max) * 100, 2)}%`, height: "100%", background: `linear-gradient(90deg, ${color}, ${color}88)`, borderRadius: 4 }} />
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ background: C.bg, minHeight: "100vh", color: C.white, fontFamily: FONT, display: "flex", flexDirection: "column" }}>
+      <style>{`*{box-sizing:border-box;margin:0;padding:0}::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:${C.bg}}::-webkit-scrollbar-thumb{background:${C.panelBorder};border-radius:4px}@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+
+      {/* Header */}
+      <div style={{ padding: "12px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${C.panelBorder}`, background: `linear-gradient(180deg, #0d1220, ${C.bg})` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <div style={{ width: 44, height: 44, borderRadius: 6, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", padding: 3 }}>
+            <img src={IB_LOGO} alt="IB" style={{ width: 38, height: 38, borderRadius: 6 }} />
+          </div>
+          <div>
+            <div style={{ fontSize: 20, fontWeight: 900, fontFamily: FONT, color: "#fff" }}>CRM · DYNAMICS 365 SALES</div>
+            <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, letterSpacing: 1.5, textTransform: "uppercase", fontFamily: FONT }}>Funil de vendas • Oportunidades & Leads</div>
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <button onClick={onExit} style={{ background: `linear-gradient(135deg, ${C.red}cc, ${C.red})`, border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, color: "#fff", fontFamily: FONT, fontWeight: 700 }}>✕ Dashboard</button>
+          <Clock />
+        </div>
+      </div>
+
+      {/* Body */}
+      <div style={{ flex: 1, overflow: "auto", padding: "24px 28px" }}>
+        {st.loading && (
+          <div style={{ textAlign: "center", padding: "60px 0", color: C.muted, fontFamily: FONT }}>
+            <div style={{ width: 34, height: 34, border: `3px solid ${C.panelBorder}`, borderTopColor: ACCENT, borderRadius: "50%", margin: "0 auto 14px", animation: "spin 0.8s linear infinite" }} />
+            Conectando ao Dynamics 365…
+          </div>
+        )}
+
+        {!st.loading && st.error && (
+          <div style={{ background: C.panel, border: `1px solid ${C.red}50`, borderLeft: `4px solid ${C.red}`, borderRadius: 12, padding: "20px 24px" }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: C.red, fontFamily: FONT, marginBottom: 6 }}>Não foi possível carregar o CRM</div>
+            <div style={{ fontSize: 13, color: C.muted, fontFamily: FONT, whiteSpace: "pre-wrap" }}>{st.error}</div>
+          </div>
+        )}
+
+        {!st.loading && !st.error && (
+          <>
+            {data.errors && data.errors.length > 0 && (
+              <div style={{ background: `${C.amber}12`, border: `1px solid ${C.amber}40`, borderRadius: 10, padding: "10px 16px", marginBottom: 18, fontSize: 12, color: C.amber, fontFamily: FONT, whiteSpace: "pre-wrap" }}>
+                ⚠️ Algumas colunas precisam de ajuste: {data.errors.join(" | ")}
+              </div>
+            )}
+
+            {/* KPIs */}
+            <div style={{ display: "flex", gap: 14, marginBottom: 24, flexWrap: "wrap" }}>
+              {kpi("Oportunidades abertas", String(abertas.length), `Valor estimado: ${fmtV(valorAbertas)}`, C.cyan)}
+              {kpi("Ganhas", String(ganhas.length), `Valor: ${fmtV(valorGanhas)}`, C.green)}
+              {kpi("Perdidas", String(perdidas.length), "no período", C.red)}
+              {kpi("Leads abertos", String(leadsAbertos.length), `de ${leads.length} no total`, ACCENT)}
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, marginBottom: 18 }}>
+              {/* Funil por estágio */}
+              <div style={{ background: C.panel, border: `1px solid ${C.panelBorder}`, borderRadius: 12, padding: "18px 20px" }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: "#fff", fontFamily: FONT, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 14 }}>🔵 Funil por estágio (abertas)</div>
+                {porEstagio.length ? porEstagio.map(e => barRow(e.k, e.count, e.valor, maxEstagio, C.cyan)) : <div style={{ color: C.muted, fontFamily: FONT, fontSize: 13 }}>Sem oportunidades abertas.</div>}
+              </div>
+              {/* Por responsável */}
+              <div style={{ background: C.panel, border: `1px solid ${C.panelBorder}`, borderRadius: 12, padding: "18px 20px" }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: "#fff", fontFamily: FONT, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 14 }}>👤 Por responsável (abertas)</div>
+                {porDono.length ? porDono.map(e => barRow(e.k, e.count, e.valor, maxDono, ACCENT)) : <div style={{ color: C.muted, fontFamily: FONT, fontSize: 13 }}>Sem dados.</div>}
+              </div>
+            </div>
+
+            {/* Lista de oportunidades abertas */}
+            <div style={{ background: C.panel, border: `1px solid ${C.panelBorder}`, borderRadius: 12, overflow: "hidden" }}>
+              <div style={{ padding: "12px 20px", fontSize: 13, fontWeight: 800, color: "#fff", fontFamily: FONT, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: `1px solid ${C.panelBorder}` }}>Oportunidades abertas · maiores valores</div>
+              <div style={{ display: "grid", gridTemplateColumns: "2fr 1.3fr 1fr 1fr 0.8fr 1fr", padding: "10px 20px", fontSize: 10, fontWeight: 800, color: C.muted, textTransform: "uppercase", letterSpacing: 0.6, fontFamily: FONT, borderBottom: `1px solid ${C.panelBorder}` }}>
+                <div>Oportunidade</div><div>Responsável</div><div>Valor est.</div><div>Fechamento</div><div>Prob.</div><div>Estágio</div>
+              </div>
+              {abertasTop.map((o, i) => (
+                <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1.3fr 1fr 1fr 0.8fr 1fr", padding: "11px 20px", fontSize: 13, color: "#fff", fontFamily: FONT, alignItems: "center", borderBottom: `1px solid ${C.panelBorder}55` }}>
+                  <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.name || "—"}</div>
+                  <div style={{ color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fv(o, "_ownerid_value") || "—"}</div>
+                  <div style={{ fontWeight: 800, color: C.cyan }}>{fmtV(o.estimatedvalue)}</div>
+                  <div style={{ color: C.muted }}>{fmtDate(o.estimatedclosedate)}</div>
+                  <div style={{ color: C.muted }}>{o.closeprobability != null ? `${o.closeprobability}%` : "—"}</div>
+                  <div style={{ color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fv(o, "statuscode") || "—"}</div>
+                </div>
+              ))}
+              {abertasTop.length === 0 && <div style={{ padding: 20, color: C.muted, fontFamily: FONT, textAlign: "center" }}>Sem oportunidades abertas.</div>}
+            </div>
+          </>
+        )}
+      </div>
+
+      <div style={{ padding: "8px 24px", borderTop: `1px solid ${C.panelBorder}`, display: "flex", justifyContent: "space-between", fontSize: 10, color: C.dimText, fontFamily: FONT }}>
+        <span>🔗 Dynamics 365 Sales · Dataverse Web API</span>
+        <span>INDEPENDENT BRAZIL • Trading Desk v4.0</span>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [data, setData] = useState(null);
@@ -3393,6 +3551,7 @@ export default function App() {
   const [consultaMode, setConsultaMode] = useState(false);
   const [financeiroMode, setFinanceiroMode] = useState(false);
   const [contratosMode, setContratosMode] = useState(false);
+  const [crmMode, setCrmMode] = useState(false);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [paused, setPaused] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -3494,6 +3653,7 @@ export default function App() {
   if (consultaMode) return <TraderConsulta d={d} onExit={() => setConsultaMode(false)} />;
   if (financeiroMode) return <VisaoFinanceira d={d} onExit={() => setFinanceiroMode(false)} />;
   if (contratosMode) return <RadarContratos d={d} onExit={() => setContratosMode(false)} />;
+  if (crmMode) return <VisaoCRM onExit={() => setCrmMode(false)} />;
   const maxTraderLob = d.traderRanking.length > 0 ? Math.max(...d.traderRanking.map(t => config.viewMode === "ano" ? t.lobAno : t.lobMes)) : 1;
   // Destaque de risco de contrato: Sem Booking + Status_Contrato "Não"
   const riscoContrato = (() => {
@@ -3587,6 +3747,7 @@ export default function App() {
           <button onClick={() => setConsultaMode(true)} style={{ background: `linear-gradient(135deg, ${C.green}, #00bfa5)`, border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, color: "#fff", fontFamily: FONT, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>👥 Consulta Traders</button>
           <button onClick={() => setFinanceiroMode(true)} style={{ background: `linear-gradient(135deg, ${C.red}, #ff6d00)`, border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, color: "#fff", fontFamily: FONT, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>💰 Financeiro</button>
           <button onClick={() => setContratosMode(true)} style={{ background: `linear-gradient(135deg, #ff6d00, ${C.amber})`, border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, color: "#fff", fontFamily: FONT, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>📄 Contratos</button>
+          <button onClick={() => setCrmMode(true)} style={{ background: `linear-gradient(135deg, ${C.blue}, #7c4dff)`, border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, color: "#fff", fontFamily: FONT, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>🔗 CRM</button>
           <div style={{ position: "relative" }}>
             <button onClick={() => setReportsOpen(!reportsOpen)} style={{ background: `linear-gradient(135deg, ${C.amber}, #ff9800)`, border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, color: "#fff", fontFamily: FONT, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>📄 Relatórios</button>
             {reportsOpen && (
