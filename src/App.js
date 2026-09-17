@@ -3386,9 +3386,14 @@ function RadarContratos({ d, onExit }) {
 // ══════════════════════════════════════════════════════════════
 //  CRM — DYNAMICS 365 SALES (funil: oportunidades + leads)
 //  Fonte independente: lê /api/crm/pipeline (backend Dataverse)
+// ══════════════════════════════════════════════════════════════// ══════════════════════════════════════════════════════════════
+//  CRM — DYNAMICS 365 SALES (dinâmico: abas Oportunidades / Leads)
+//  Fonte independente: lê /api/crm/pipeline (backend Dataverse)
 // ══════════════════════════════════════════════════════════════
 function VisaoCRM({ onExit }) {
   const [st, setSt] = useState({ loading: true, error: null, data: null });
+  const [tab, setTab] = useState("opps");   // "opps" | "leads"
+  const [fOwner, setFOwner] = useState(null); // filtro por responsável (null = todos)
 
   useEffect(() => {
     let alive = true;
@@ -3405,6 +3410,7 @@ function VisaoCRM({ onExit }) {
   }, []);
 
   const ACCENT = "#7c4dff";
+  const OPP = C.cyan;
   const fv = (rec, f) => rec[`${f}@OData.Community.Display.V1.FormattedValue`] ?? rec[f] ?? null;
   const fmtV = (v) => { v = Number(v) || 0; const a = Math.abs(v); if (a >= 1e6) return (v / 1e6).toFixed(2) + "M"; if (a >= 1e3) return (v / 1e3).toFixed(1) + "K"; return String(Math.round(v)); };
   const fmtDate = (s) => { if (!s) return "—"; const d = new Date(s); if (isNaN(d)) return "—"; return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`; };
@@ -3412,38 +3418,146 @@ function VisaoCRM({ onExit }) {
   const data = st.data || { opportunities: [], leads: [], errors: [] };
   const opps = data.opportunities || [];
   const leads = data.leads || [];
-  const abertas = opps.filter(o => Number(o.statecode) === 0);
-  const ganhas = opps.filter(o => Number(o.statecode) === 1);
-  const perdidas = opps.filter(o => Number(o.statecode) === 2);
-  const valorAbertas = abertas.reduce((s, o) => s + (Number(o.estimatedvalue) || 0), 0);
-  const valorGanhas = ganhas.reduce((s, o) => s + (Number(o.actualvalue) || Number(o.estimatedvalue) || 0), 0);
-  const leadsAbertos = leads.filter(l => Number(l.statecode) === 0);
 
-  const porEstagio = (() => { const m = {}; abertas.forEach(o => { const k = fv(o, "statuscode") || "—"; if (!m[k]) m[k] = { k, count: 0, valor: 0 }; m[k].count++; m[k].valor += Number(o.estimatedvalue) || 0; }); return Object.values(m).sort((a, b) => b.valor - a.valor); })();
-  const maxEstagio = Math.max(1, ...porEstagio.map(e => e.valor));
-  const porDono = (() => { const m = {}; abertas.forEach(o => { const k = fv(o, "_ownerid_value") || "—"; if (!m[k]) m[k] = { k, count: 0, valor: 0 }; m[k].count++; m[k].valor += Number(o.estimatedvalue) || 0; }); return Object.values(m).sort((a, b) => b.valor - a.valor).slice(0, 8); })();
-  const maxDono = Math.max(1, ...porDono.map(e => e.valor));
-  const abertasTop = abertas.slice().sort((a, b) => (Number(b.estimatedvalue) || 0) - (Number(a.estimatedvalue) || 0)).slice(0, 15);
+  const switchTab = (t) => { setTab(t); setFOwner(null); };
+
+  const groupBy = (arr, keyFn) => {
+    const m = {};
+    arr.forEach(x => { const k = keyFn(x) || "—"; if (!m[k]) m[k] = { k, count: 0, valor: 0 }; m[k].count++; m[k].valor += Number(x.estimatedvalue) || 0; });
+    return Object.values(m).sort((a, b) => b.count - a.count);
+  };
 
   const kpi = (label, valor, sub, color) => (
-    <div style={{ flex: 1, minWidth: 170, background: `linear-gradient(135deg, ${C.panel}, ${color}0d)`, border: `1px solid ${color}40`, borderLeft: `4px solid ${color}`, borderRadius: 12, padding: "16px 20px" }}>
+    <div style={{ flex: 1, minWidth: 160, background: `linear-gradient(135deg, ${C.panel}, ${color}0d)`, border: `1px solid ${color}40`, borderLeft: `4px solid ${color}`, borderRadius: 12, padding: "16px 20px" }}>
       <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.7, color: C.muted, textTransform: "uppercase", fontFamily: FONT, marginBottom: 6 }}>{label}</div>
       <div style={{ fontSize: 26, fontWeight: 900, color, fontFamily: FONT }}>{valor}</div>
       {sub && <div style={{ fontSize: 11, color: C.muted, fontFamily: FONT, marginTop: 2 }}>{sub}</div>}
     </div>
   );
 
-  const barRow = (label, count, valor, max, color) => (
+  const barRow = (label, count, max, color, right) => (
     <div key={label} style={{ marginBottom: 10 }}>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-        <span style={{ fontSize: 13, color: "#fff", fontFamily: FONT, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "60%" }}>{label}</span>
-        <span style={{ fontSize: 12, color: C.muted, fontFamily: FONT }}>{count} · {fmtV(valor)}</span>
+        <span style={{ fontSize: 13, color: "#fff", fontFamily: FONT, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "70%" }}>{label}</span>
+        <span style={{ fontSize: 12, color: C.muted, fontFamily: FONT }}>{right != null ? right : count}</span>
       </div>
       <div style={{ height: 14, background: C.panelBorder, borderRadius: 4, overflow: "hidden" }}>
-        <div style={{ width: `${Math.max((valor / max) * 100, 2)}%`, height: "100%", background: `linear-gradient(90deg, ${color}, ${color}88)`, borderRadius: 4 }} />
+        <div style={{ width: `${Math.max((count / max) * 100, 2)}%`, height: "100%", background: `linear-gradient(90deg, ${color}, ${color}88)`, borderRadius: 4 }} />
       </div>
     </div>
   );
+
+  // ── Filtro por responsável (dinâmico) ──
+  const ownersOf = (arr) => [...new Set(arr.map(x => fv(x, "_ownerid_value") || "—"))];
+  const tabRecords = tab === "opps" ? opps : leads;
+  const owners = ownersOf(tabRecords);
+  const applyOwner = (arr) => fOwner ? arr.filter(x => (fv(x, "_ownerid_value") || "—") === fOwner) : arr;
+
+  const chip = (label, active, onClick) => (
+    <div onClick={onClick} style={{ cursor: "pointer", padding: "6px 13px", borderRadius: 8, fontSize: 12, fontWeight: 700, fontFamily: FONT, color: active ? "#fff" : C.muted, background: active ? `${ACCENT}22` : C.panel, border: `1px solid ${active ? ACCENT + "60" : C.panelBorder}`, whiteSpace: "nowrap" }}>{label}</div>
+  );
+
+  const tabBtn = (key, label, color) => (
+    <div onClick={() => switchTab(key)} style={{ cursor: "pointer", padding: "10px 26px", borderRadius: 10, fontSize: 15, fontWeight: 800, fontFamily: FONT, color: tab === key ? "#fff" : C.muted, background: tab === key ? `linear-gradient(135deg, ${color}, ${color}aa)` : C.panel, border: `1px solid ${tab === key ? color : C.panelBorder}`, transition: "all 0.15s" }}>{label}</div>
+  );
+
+  // ── Conteúdo Oportunidades ──
+  const renderOpps = () => {
+    const all = applyOwner(opps);
+    const abertas = all.filter(o => Number(o.statecode) === 0);
+    const ganhas = all.filter(o => Number(o.statecode) === 1);
+    const perdidas = all.filter(o => Number(o.statecode) === 2);
+    const valorAbertas = abertas.reduce((s, o) => s + (Number(o.estimatedvalue) || 0), 0);
+    const estagio = groupBy(abertas, o => fv(o, "statuscode"));
+    const maxEst = Math.max(1, ...estagio.map(e => e.count));
+    const porDono = groupBy(abertas, o => fv(o, "_ownerid_value")).slice(0, 8);
+    const maxDono = Math.max(1, ...porDono.map(e => e.count));
+    const lista = abertas.slice().sort((a, b) => (Number(b.estimatedvalue) || 0) - (Number(a.estimatedvalue) || 0)).slice(0, 20);
+    return (
+      <>
+        <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap" }}>
+          {kpi("Abertas", String(abertas.length), `Valor est.: ${fmtV(valorAbertas)}`, OPP)}
+          {kpi("Ganhas", String(ganhas.length), "no período", C.green)}
+          {kpi("Perdidas", String(perdidas.length), "no período", C.red)}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, marginBottom: 18 }}>
+          <div style={{ background: C.panel, border: `1px solid ${C.panelBorder}`, borderRadius: 12, padding: "18px 20px" }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: "#fff", fontFamily: FONT, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 14 }}>🔵 Funil por estágio (abertas)</div>
+            {estagio.length ? estagio.map(e => barRow(e.k, e.count, maxEst, OPP)) : <div style={{ color: C.muted, fontFamily: FONT, fontSize: 13 }}>Sem oportunidades abertas.</div>}
+          </div>
+          <div style={{ background: C.panel, border: `1px solid ${C.panelBorder}`, borderRadius: 12, padding: "18px 20px" }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: "#fff", fontFamily: FONT, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 14 }}>👤 Por responsável (abertas)</div>
+            {porDono.length ? porDono.map(e => barRow(e.k, e.count, maxDono, ACCENT)) : <div style={{ color: C.muted, fontFamily: FONT, fontSize: 13 }}>Sem dados.</div>}
+          </div>
+        </div>
+        <div style={{ background: C.panel, border: `1px solid ${C.panelBorder}`, borderRadius: 12, overflow: "hidden" }}>
+          <div style={{ padding: "12px 20px", fontSize: 13, fontWeight: 800, color: "#fff", fontFamily: FONT, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: `1px solid ${C.panelBorder}` }}>Oportunidades abertas</div>
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 1.3fr 1fr 1fr 0.8fr 1fr", padding: "10px 20px", fontSize: 10, fontWeight: 800, color: C.muted, textTransform: "uppercase", letterSpacing: 0.6, fontFamily: FONT, borderBottom: `1px solid ${C.panelBorder}` }}>
+            <div>Oportunidade</div><div>Responsável</div><div>Valor est.</div><div>Fechamento</div><div>Prob.</div><div>Estágio</div>
+          </div>
+          {lista.map((o, i) => (
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1.3fr 1fr 1fr 0.8fr 1fr", padding: "11px 20px", fontSize: 13, color: "#fff", fontFamily: FONT, alignItems: "center", borderBottom: `1px solid ${C.panelBorder}55` }}>
+              <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.name || "—"}</div>
+              <div style={{ color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fv(o, "_ownerid_value") || "—"}</div>
+              <div style={{ fontWeight: 800, color: OPP }}>{fmtV(o.estimatedvalue)}</div>
+              <div style={{ color: C.muted }}>{fmtDate(o.estimatedclosedate)}</div>
+              <div style={{ color: C.muted }}>{o.closeprobability != null ? `${o.closeprobability}%` : "—"}</div>
+              <div style={{ color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fv(o, "statuscode") || "—"}</div>
+            </div>
+          ))}
+          {lista.length === 0 && <div style={{ padding: 20, color: C.muted, fontFamily: FONT, textAlign: "center" }}>Sem oportunidades abertas.</div>}
+        </div>
+      </>
+    );
+  };
+
+  // ── Conteúdo Leads ──
+  const renderLeads = () => {
+    const all = applyOwner(leads);
+    const abertos = all.filter(l => Number(l.statecode) === 0);
+    const base = abertos.length ? abertos : all;
+    const porOrigem = groupBy(base, l => fv(l, "leadsourcecode"));
+    const maxOri = Math.max(1, ...porOrigem.map(e => e.count));
+    const porDono = groupBy(base, l => fv(l, "_ownerid_value")).slice(0, 8);
+    const maxDono = Math.max(1, ...porDono.map(e => e.count));
+    const porRating = groupBy(base, l => fv(l, "leadqualitycode"));
+    const lista = base.slice(0, 25);
+    return (
+      <>
+        <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap" }}>
+          {kpi("Leads abertos", String(abertos.length), `de ${all.length} no total`, ACCENT)}
+          {kpi("Origens", String(porOrigem.length), "canais de entrada", C.cyan)}
+          {kpi("Responsáveis", String(porDono.length), "com leads", C.green)}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, marginBottom: 18 }}>
+          <div style={{ background: C.panel, border: `1px solid ${C.panelBorder}`, borderRadius: 12, padding: "18px 20px" }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: "#fff", fontFamily: FONT, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 14 }}>🌱 Por origem</div>
+            {porOrigem.length ? porOrigem.map(e => barRow(e.k, e.count, maxOri, C.green)) : <div style={{ color: C.muted, fontFamily: FONT, fontSize: 13 }}>Sem dados.</div>}
+          </div>
+          <div style={{ background: C.panel, border: `1px solid ${C.panelBorder}`, borderRadius: 12, padding: "18px 20px" }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: "#fff", fontFamily: FONT, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 14 }}>👤 Por responsável</div>
+            {porDono.length ? porDono.map(e => barRow(e.k, e.count, maxDono, ACCENT)) : <div style={{ color: C.muted, fontFamily: FONT, fontSize: 13 }}>Sem dados.</div>}
+          </div>
+        </div>
+        <div style={{ background: C.panel, border: `1px solid ${C.panelBorder}`, borderRadius: 12, overflow: "hidden" }}>
+          <div style={{ padding: "12px 20px", fontSize: 13, fontWeight: 800, color: "#fff", fontFamily: FONT, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: `1px solid ${C.panelBorder}` }}>Leads</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1.4fr 1fr 1.2fr 1.1fr", padding: "10px 20px", fontSize: 10, fontWeight: 800, color: C.muted, textTransform: "uppercase", letterSpacing: 0.6, fontFamily: FONT, borderBottom: `1px solid ${C.panelBorder}` }}>
+            <div>Tópico / Nome</div><div>Empresa</div><div>Origem</div><div>Cargo</div><div>Responsável</div>
+          </div>
+          {lista.map((l, i) => (
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "1.6fr 1.4fr 1fr 1.2fr 1.1fr", padding: "11px 20px", fontSize: 13, color: "#fff", fontFamily: FONT, alignItems: "center", borderBottom: `1px solid ${C.panelBorder}55` }}>
+              <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.subject || l.fullname || "—"}</div>
+              <div style={{ color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.companyname || "—"}</div>
+              <div style={{ color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fv(l, "leadsourcecode") || "—"}</div>
+              <div style={{ color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.jobtitle || "—"}</div>
+              <div style={{ color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fv(l, "_ownerid_value") || "—"}</div>
+            </div>
+          ))}
+          {lista.length === 0 && <div style={{ padding: 20, color: C.muted, fontFamily: FONT, textAlign: "center" }}>Sem leads.</div>}
+        </div>
+      </>
+    );
+  };
 
   return (
     <div style={{ background: C.bg, minHeight: "100vh", color: C.white, fontFamily: FONT, display: "flex", flexDirection: "column" }}>
@@ -3466,6 +3580,21 @@ function VisaoCRM({ onExit }) {
         </div>
       </div>
 
+      {/* Abas + filtro */}
+      {!st.loading && !st.error && (
+        <div style={{ padding: "12px 28px", borderBottom: `1px solid ${C.panelBorder}`, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 10 }}>
+            {tabBtn("opps", `📊 Oportunidades (${opps.length})`, OPP)}
+            {tabBtn("leads", `🌱 Leads (${leads.length})`, ACCENT)}
+          </div>
+          <div style={{ display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap", marginLeft: "auto" }}>
+            <span style={{ fontSize: 12, color: C.muted, fontFamily: FONT }}>Responsável:</span>
+            {chip("Todos", fOwner === null, () => setFOwner(null))}
+            {owners.slice(0, 10).map(o => chip(o, fOwner === o, () => setFOwner(o)))}
+          </div>
+        </div>
+      )}
+
       {/* Body */}
       <div style={{ flex: 1, overflow: "auto", padding: "24px 28px" }}>
         {st.loading && (
@@ -3474,61 +3603,20 @@ function VisaoCRM({ onExit }) {
             Conectando ao Dynamics 365…
           </div>
         )}
-
         {!st.loading && st.error && (
           <div style={{ background: C.panel, border: `1px solid ${C.red}50`, borderLeft: `4px solid ${C.red}`, borderRadius: 12, padding: "20px 24px" }}>
             <div style={{ fontSize: 16, fontWeight: 800, color: C.red, fontFamily: FONT, marginBottom: 6 }}>Não foi possível carregar o CRM</div>
             <div style={{ fontSize: 13, color: C.muted, fontFamily: FONT, whiteSpace: "pre-wrap" }}>{st.error}</div>
           </div>
         )}
-
         {!st.loading && !st.error && (
           <>
             {data.errors && data.errors.length > 0 && (
               <div style={{ background: `${C.amber}12`, border: `1px solid ${C.amber}40`, borderRadius: 10, padding: "10px 16px", marginBottom: 18, fontSize: 12, color: C.amber, fontFamily: FONT, whiteSpace: "pre-wrap" }}>
-                ⚠️ Algumas colunas precisam de ajuste: {data.errors.join(" | ")}
+                ⚠️ Alguns campos precisam de ajuste: {data.errors.join(" | ")}
               </div>
             )}
-
-            {/* KPIs */}
-            <div style={{ display: "flex", gap: 14, marginBottom: 24, flexWrap: "wrap" }}>
-              {kpi("Oportunidades abertas", String(abertas.length), `Valor estimado: ${fmtV(valorAbertas)}`, C.cyan)}
-              {kpi("Ganhas", String(ganhas.length), `Valor: ${fmtV(valorGanhas)}`, C.green)}
-              {kpi("Perdidas", String(perdidas.length), "no período", C.red)}
-              {kpi("Leads abertos", String(leadsAbertos.length), `de ${leads.length} no total`, ACCENT)}
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, marginBottom: 18 }}>
-              {/* Funil por estágio */}
-              <div style={{ background: C.panel, border: `1px solid ${C.panelBorder}`, borderRadius: 12, padding: "18px 20px" }}>
-                <div style={{ fontSize: 13, fontWeight: 800, color: "#fff", fontFamily: FONT, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 14 }}>🔵 Funil por estágio (abertas)</div>
-                {porEstagio.length ? porEstagio.map(e => barRow(e.k, e.count, e.valor, maxEstagio, C.cyan)) : <div style={{ color: C.muted, fontFamily: FONT, fontSize: 13 }}>Sem oportunidades abertas.</div>}
-              </div>
-              {/* Por responsável */}
-              <div style={{ background: C.panel, border: `1px solid ${C.panelBorder}`, borderRadius: 12, padding: "18px 20px" }}>
-                <div style={{ fontSize: 13, fontWeight: 800, color: "#fff", fontFamily: FONT, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 14 }}>👤 Por responsável (abertas)</div>
-                {porDono.length ? porDono.map(e => barRow(e.k, e.count, e.valor, maxDono, ACCENT)) : <div style={{ color: C.muted, fontFamily: FONT, fontSize: 13 }}>Sem dados.</div>}
-              </div>
-            </div>
-
-            {/* Lista de oportunidades abertas */}
-            <div style={{ background: C.panel, border: `1px solid ${C.panelBorder}`, borderRadius: 12, overflow: "hidden" }}>
-              <div style={{ padding: "12px 20px", fontSize: 13, fontWeight: 800, color: "#fff", fontFamily: FONT, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: `1px solid ${C.panelBorder}` }}>Oportunidades abertas · maiores valores</div>
-              <div style={{ display: "grid", gridTemplateColumns: "2fr 1.3fr 1fr 1fr 0.8fr 1fr", padding: "10px 20px", fontSize: 10, fontWeight: 800, color: C.muted, textTransform: "uppercase", letterSpacing: 0.6, fontFamily: FONT, borderBottom: `1px solid ${C.panelBorder}` }}>
-                <div>Oportunidade</div><div>Responsável</div><div>Valor est.</div><div>Fechamento</div><div>Prob.</div><div>Estágio</div>
-              </div>
-              {abertasTop.map((o, i) => (
-                <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1.3fr 1fr 1fr 0.8fr 1fr", padding: "11px 20px", fontSize: 13, color: "#fff", fontFamily: FONT, alignItems: "center", borderBottom: `1px solid ${C.panelBorder}55` }}>
-                  <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.name || "—"}</div>
-                  <div style={{ color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fv(o, "_ownerid_value") || "—"}</div>
-                  <div style={{ fontWeight: 800, color: C.cyan }}>{fmtV(o.estimatedvalue)}</div>
-                  <div style={{ color: C.muted }}>{fmtDate(o.estimatedclosedate)}</div>
-                  <div style={{ color: C.muted }}>{o.closeprobability != null ? `${o.closeprobability}%` : "—"}</div>
-                  <div style={{ color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fv(o, "statuscode") || "—"}</div>
-                </div>
-              ))}
-              {abertasTop.length === 0 && <div style={{ padding: 20, color: C.muted, fontFamily: FONT, textAlign: "center" }}>Sem oportunidades abertas.</div>}
-            </div>
+            {tab === "opps" ? renderOpps() : renderLeads()}
           </>
         )}
       </div>
